@@ -3,6 +3,8 @@ const { MemberType } = require('../models');
 exports.createMemberType = async (req, res) => {
   try {
     const { name, color } = req.body;
+    if (!name || !color) return res.status(400).json({ error: 'Missing required fields' });
+    if (typeof name !== 'string' || typeof color !== 'string') return res.status(400).json({ error: 'Invalid field types' });
     const memberType = await MemberType.create({ name, color });
     res.status(201).json(memberType);
   } catch (err) {

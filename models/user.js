@@ -25,6 +25,11 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: [],
     },
+    permissions: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [],
+    },
   });
   return User;
 };

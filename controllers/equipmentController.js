@@ -3,6 +3,9 @@ const { Equipment } = require('../models');
 exports.createEquipment = async (req, res) => {
   try {
     const { name, type, salonId } = req.body;
+    if (!name || !type || !salonId) return res.status(400).json({ error: 'Missing required fields' });
+    if (typeof name !== 'string' || typeof type !== 'string' || isNaN(salonId)) return res.status(400).json({ error: 'Invalid field types' });
+    if (!['Mat', 'Reformer'].includes(type)) return res.status(400).json({ error: 'Invalid equipment type' });
     const equipment = await Equipment.create({ name, type, salonId });
     res.status(201).json(equipment);
   } catch (err) {

@@ -9,6 +9,12 @@ async function isSlotAvailable(equipmentId, date, time) {
 exports.createReservation = async (req, res) => {
   try {
     const { memberId, equipmentId, salonId, date, time } = req.body;
+    if (!memberId || !equipmentId || !salonId || !date || !time) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    if (isNaN(memberId) || isNaN(equipmentId) || isNaN(salonId)) {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
     // Validate equipment exists and belongs to salon
     const equipment = await Equipment.findByPk(equipmentId);
     if (!equipment) return res.status(400).json({ error: 'Equipment not found' });
@@ -20,9 +26,12 @@ exports.createReservation = async (req, res) => {
     if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
     // Check member has enough lessons
     if (member.remainingLessons <= 0) return res.status(400).json({ error: 'No remaining lessons' });
-    // Check slot availability
+    // Check slot availability (prevent double booking)
     const available = await isSlotAvailable(equipmentId, date, time);
     if (!available) return res.status(400).json({ error: 'Slot not available' });
+    // Prevent double booking for member at same time
+    const memberDouble = await Reservation.count({ where: { memberId, date, time } });
+    if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
     // Create reservation
     const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
     // Decrement lesson count

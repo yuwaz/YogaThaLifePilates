@@ -40,6 +40,11 @@ app.use('/settings/paymentMethods', paymentMethodsRoutes);
 // Health check
 app.get('/', (req, res) => res.send('Fitness Studio API running'));
 
+// Fallback 404 handler for unmatched routes (returns JSON, not HTML)
+app.use((req, res, next) => {
+  res.status(404).json({ message: 'Not found' });
+});
+
 // Start server
 const PORT = process.env.PORT || 3000;
 (async () => {

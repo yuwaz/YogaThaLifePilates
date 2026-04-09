@@ -3,6 +3,10 @@ const { LessonPackage } = require('../models');
 exports.createLessonPackage = async (req, res) => {
   try {
     const { name, lessonCount, price } = req.body;
+    if (!name || lessonCount == null || price == null) return res.status(400).json({ error: 'Missing required fields' });
+    if (typeof name !== 'string' || isNaN(lessonCount) || isNaN(price)) return res.status(400).json({ error: 'Invalid field types' });
+    if (Number(lessonCount) <= 0) return res.status(400).json({ error: 'lessonCount must be positive' });
+    if (Number(price) < 0) return res.status(400).json({ error: 'price must be non-negative' });
     const lessonPackage = await LessonPackage.create({ name, lessonCount, price });
     res.status(201).json(lessonPackage);
   } catch (err) {
