@@ -52,10 +52,24 @@ exports.updateMember = async (req, res) => {
 };
 
 exports.deleteMember = async (req, res) => {
-  const member = await Member.findByPk(req.params.id);
-  if (!member) return res.sendStatus(404);
-  await member.destroy();
-  res.sendStatus(204);
+  try {
+    const memberId = req.params.id;
+    console.log(`[DELETE MEMBER] Attempting to delete member id: ${memberId}`);
+    const member = await Member.findByPk(memberId);
+    if (!member) {
+      console.log(`[DELETE MEMBER] Member not found: ${memberId}`);
+      return res.status(404).json({ message: 'Member not found' });
+    }
+    // Delete related payments
+    const deletedPayments = await Payment.destroy({ where: { memberId } });
+    console.log(`[DELETE MEMBER] Deleted ${deletedPayments} related payments for member id: ${memberId}`);
+    await member.destroy();
+    console.log(`[DELETE MEMBER] Member deleted: ${memberId}`);
+    return res.json({ message: 'Member and related payments deleted', memberId, deletedPayments });
+  } catch (err) {
+    console.error(`[DELETE MEMBER] Error deleting member:`, err);
+    return res.status(500).json({ message: 'Failed to delete member', error: err.message });
+  }
 };
 
 // Add lesson package to member
