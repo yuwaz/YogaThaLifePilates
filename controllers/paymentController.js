@@ -44,10 +44,26 @@ exports.updatePayment = async (req, res) => {
     const { amount, paymentMethodId, date } = req.body;
     const payment = await Payment.findByPk(req.params.id);
     if (!payment) return res.status(404).json({ message: 'Payment not found' });
-    if (amount !== undefined) payment.amount = amount;
+
+    // Save old amount for debt adjustment
+    const oldAmount = parseFloat(payment.amount);
+    let newAmount = oldAmount;
+    if (amount !== undefined) {
+      payment.amount = amount;
+      newAmount = parseFloat(amount);
+    }
     if (paymentMethodId !== undefined) payment.paymentMethodId = paymentMethodId;
     if (date !== undefined) payment.date = date;
     await payment.save();
+
+    // Adjust member's totalDebt by the difference
+    const member = await Member.findByPk(payment.memberId);
+    if (member) {
+      // Formula: member.totalDebt = member.totalDebt - (newAmount - oldAmount)
+      member.totalDebt = parseFloat(member.totalDebt) - (newAmount - oldAmount);
+      await member.save();
+    }
+
     res.json(payment);
   } catch (err) {
     console.error('Error in PUT /settings/payments/:id:', err);
@@ -61,7 +77,19 @@ exports.deletePayment = async (req, res) => {
     console.log('DELETE /settings/payments/:id hit');
     const payment = await Payment.findByPk(req.params.id);
     if (!payment) return res.status(404).json({ message: 'Payment not found' });
+
+    // Store memberId and amount before deleting
+    const memberId = payment.memberId;
+    const amount = parseFloat(payment.amount);
+
     await payment.destroy();
+
+    // After deleting, load member and restore debt
+    const member = await Member.findByPk(memberId);
+    if (!member) return res.status(404).json({ message: 'Member not found' });
+    member.totalDebt = parseFloat(member.totalDebt) + amount;
+    await member.save();
+
     res.sendStatus(204);
   } catch (err) {
     console.error('Error in DELETE /settings/payments/:id:', err);
