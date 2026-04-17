@@ -1,3 +1,66 @@
+exports.updateReservation = async (req, res) => {
+  try {
+    const { memberId, equipmentId, salonId, date, time } = req.body;
+    if (!memberId || !equipmentId || !salonId || !date || !time) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    if (isNaN(memberId) || isNaN(equipmentId) || isNaN(salonId)) {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
+    const reservation = await Reservation.findByPk(req.params.id);
+    if (!reservation) return res.sendStatus(404);
+    // Validate equipment exists and belongs to salon
+    const equipment = await Equipment.findByPk(equipmentId);
+    if (!equipment) return res.status(400).json({ error: 'Equipment not found' });
+    if (equipment.salonId !== Number(salonId)) return res.status(400).json({ error: 'Equipment does not belong to this salon' });
+    if (!['Mat', 'Reformer'].includes(equipment.type)) return res.status(400).json({ error: 'Invalid equipment type' });
+    // Validate member exists and is assigned to salon
+    const member = await Member.findByPk(memberId);
+    if (!member) return res.status(400).json({ error: 'Member not found' });
+    if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
+    // Check slot availability (excluding current reservation)
+    const slotConflict = await Reservation.count({
+      where: {
+        equipmentId,
+        date,
+        time,
+        id: { $ne: reservation.id }
+      }
+    });
+    if (slotConflict > 0) return res.status(400).json({ error: 'Slot not available' });
+    // Prevent double booking for member at same time (excluding current reservation)
+    const memberDouble = await Reservation.count({
+      where: {
+        memberId,
+        date,
+        time,
+        id: { $ne: reservation.id }
+      }
+    });
+    if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
+    // Update reservation
+    reservation.memberId = memberId;
+    reservation.equipmentId = equipmentId;
+    reservation.salonId = salonId;
+    reservation.date = date;
+    reservation.time = time;
+    await reservation.save();
+    // Fetch enriched reservation for response
+    const enriched = await Reservation.findByPk(reservation.id, {
+      include: [{
+        model: Member,
+        attributes: ['id', 'name', 'memberTypeId'],
+        include: [{
+          model: MemberType,
+          attributes: ['id', 'name', 'color']
+        }]
+      }]
+    });
+    res.json(formatReservation(enriched));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
 const { Reservation, Equipment, Salon, Member, MemberType } = require('../models');
 
 // Helper to format enriched reservation
