@@ -1,5 +1,24 @@
 const { Reservation, Equipment, Salon, Member, MemberType } = require('../models');
 
+// Helper to format enriched reservation
+function formatReservation(reservation) {
+  if (!reservation) return null;
+  const member = reservation.Member || {};
+  const memberType = (member.MemberType) || {};
+  return {
+    id: reservation.id,
+    salonId: reservation.salonId,
+    equipmentId: reservation.equipmentId,
+    memberId: member.id,
+    memberName: member.name,
+    memberTypeId: member.memberTypeId,
+    memberTypeName: memberType.name,
+    memberTypeColor: memberType.color,
+    date: reservation.date,
+    time: reservation.time
+  };
+}
+
 // Helper: check slot availability
 async function isSlotAvailable(equipmentId, date, time) {
   const count = await Reservation.count({ where: { equipmentId, date, time } });
@@ -89,26 +108,7 @@ exports.getReservation = async (req, res) => {
     return res.sendStatus(403);
   }
   res.json(formatReservation(reservation));
-
-// Helper to format enriched reservation
-function formatReservation(reservation) {
-  if (!reservation) return null;
-  const member = reservation.Member || {};
-  const memberType = (member.MemberType) || {};
-  return {
-    id: reservation.id,
-    salonId: reservation.salonId,
-    equipmentId: reservation.equipmentId,
-    memberId: member.id,
-    memberName: member.name,
-    memberTypeId: member.memberTypeId,
-    memberTypeName: memberType.name,
-    memberTypeColor: memberType.color,
-    date: reservation.date,
-    time: reservation.time
-  };
 }
-};
 
 exports.deleteReservation = async (req, res) => {
   const reservation = await Reservation.findByPk(req.params.id);
