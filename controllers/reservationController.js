@@ -1,4 +1,4 @@
-const { Reservation, Equipment, Salon, Member } = require('../models');
+const { Reservation, Equipment, Salon, Member, MemberType } = require('../models');
 
 // Helper: check slot availability
 async function isSlotAvailable(equipmentId, date, time) {
@@ -34,8 +34,19 @@ exports.createReservation = async (req, res) => {
     if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
     // Create reservation
     const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
+    // Fetch enriched reservation for response
+    const enriched = await Reservation.findByPk(reservation.id, {
+      include: [{
+        model: Member,
+        attributes: ['id', 'name', 'memberTypeId'],
+        include: [{
+          model: MemberType,
+          attributes: ['id', 'name', 'color']
+        }]
+      }]
+    });
     // Do NOT decrement lesson count here
-    res.status(201).json(reservation);
+    res.status(201).json(formatReservation(enriched));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -47,18 +58,56 @@ exports.getReservations = async (req, res) => {
   if (req.user.role === 'instructor') {
     where.salonId = req.user.assignedSalonIds;
   }
-  const reservations = await Reservation.findAll({ where });
-  res.json(reservations);
+  const reservations = await Reservation.findAll({
+    where,
+    include: [{
+      model: Member,
+      attributes: ['id', 'name', 'memberTypeId'],
+      include: [{
+        model: MemberType,
+        attributes: ['id', 'name', 'color']
+      }]
+    }]
+  });
+  res.json(reservations.map(formatReservation));
 };
 
 exports.getReservation = async (req, res) => {
-  const reservation = await Reservation.findByPk(req.params.id);
+  const reservation = await Reservation.findByPk(req.params.id, {
+    include: [{
+      model: Member,
+      attributes: ['id', 'name', 'memberTypeId'],
+      include: [{
+        model: MemberType,
+        attributes: ['id', 'name', 'color']
+      }]
+    }]
+  });
   if (!reservation) return res.sendStatus(404);
   // Instructors can only access their assigned salons
   if (req.user.role === 'instructor' && !req.user.assignedSalonIds.includes(reservation.salonId)) {
     return res.sendStatus(403);
   }
-  res.json(reservation);
+  res.json(formatReservation(reservation));
+
+// Helper to format enriched reservation
+function formatReservation(reservation) {
+  if (!reservation) return null;
+  const member = reservation.Member || {};
+  const memberType = (member.MemberType) || {};
+  return {
+    id: reservation.id,
+    salonId: reservation.salonId,
+    equipmentId: reservation.equipmentId,
+    memberId: member.id,
+    memberName: member.name,
+    memberTypeId: member.memberTypeId,
+    memberTypeName: memberType.name,
+    memberTypeColor: memberType.color,
+    date: reservation.date,
+    time: reservation.time
+  };
+}
 };
 
 exports.deleteReservation = async (req, res) => {
