@@ -64,7 +64,6 @@ exports.createReservation = async (req, res) => {
         }]
       }]
     });
-    // Do NOT decrement lesson count here
     res.status(201).json(formatReservation(enriched));
   } catch (err) {
     res.status(400).json({ error: err.message });
