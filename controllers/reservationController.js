@@ -34,9 +34,7 @@ exports.createReservation = async (req, res) => {
     if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
     // Create reservation
     const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
-    // Decrement lesson count
-    member.remainingLessons = Number(member.remainingLessons) - 1;
-    await member.save();
+    // Do NOT decrement lesson count here
     res.status(201).json(reservation);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -71,5 +69,6 @@ exports.deleteReservation = async (req, res) => {
     return res.sendStatus(403);
   }
   await reservation.destroy();
+  // Do NOT change lesson count on delete
   res.sendStatus(204);
 };
