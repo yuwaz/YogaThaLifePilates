@@ -56,8 +56,11 @@ app.use((req, res, next) => {
 });
 
 // Start server
+
+const ensureMemberSoftDeleteColumns = require('./ensureMemberSoftDeleteColumns');
 const PORT = process.env.PORT || 3000;
 (async () => {
+  await ensureMemberSoftDeleteColumns();
   await sequelize.sync();
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
