@@ -42,6 +42,15 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: [],
     },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    deletedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   });
   return Member;
 };

@@ -1,4 +1,24 @@
-const { Member, MemberType, Salon, LessonPackage, Payment, Attendance } = require('../models');
+// Restore/reactivate member (admin only)
+exports.restoreMember = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only admin can reactivate members' });
+    }
+    const memberId = req.params.id;
+    const member = await Member.findByPk(memberId);
+    if (!member) {
+      return res.status(404).json({ message: 'Member not found' });
+    }
+    member.isActive = true;
+    member.deletedAt = null;
+    await member.save();
+    return res.json({ message: 'Member reactivated successfully', memberId });
+  } catch (err) {
+    return res.status(500).json({ message: 'Failed to reactivate member', error: err.message });
+  }
+};
+const { Member, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation } = require('../models');
+const { Op } = require('sequelize');
 
 exports.createMember = async (req, res) => {
   try {
@@ -19,6 +39,13 @@ exports.createMember = async (req, res) => {
 };
 
 exports.getMembers = async (req, res) => {
+  const members = await Member.findAll({ where: { isActive: true } });
+  res.json(members);
+};
+
+// GET /members/all (admin only)
+exports.getAllMembers = async (req, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
   const members = await Member.findAll();
   res.json(members);
 };
@@ -53,22 +80,32 @@ exports.updateMember = async (req, res) => {
 
 exports.deleteMember = async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only admin can deactivate members' });
+    }
     const memberId = req.params.id;
-    console.log(`[DELETE MEMBER] Attempting to delete member id: ${memberId}`);
     const member = await Member.findByPk(memberId);
     if (!member) {
-      console.log(`[DELETE MEMBER] Member not found: ${memberId}`);
       return res.status(404).json({ message: 'Member not found' });
     }
-    // Delete related payments
-    const deletedPayments = await Payment.destroy({ where: { memberId } });
-    console.log(`[DELETE MEMBER] Deleted ${deletedPayments} related payments for member id: ${memberId}`);
-    await member.destroy();
-    console.log(`[DELETE MEMBER] Member deleted: ${memberId}`);
-    return res.json({ message: 'Member and related payments deleted', memberId, deletedPayments });
+    // Soft delete: set isActive=false, deletedAt=now
+    member.isActive = false;
+    member.deletedAt = new Date();
+    await member.save();
+
+    // Delete all future reservations for this member
+    await Reservation.destroy({
+      where: {
+        memberId,
+        date: { [Op.gt]: new Date().toISOString().slice(0, 10) }
+      }
+    });
+    // Delete all attendance records for this member
+    await Attendance.destroy({ where: { memberId } });
+
+    return res.json({ message: 'Member deactivated successfully', memberId });
   } catch (err) {
-    console.error(`[DELETE MEMBER] Error deleting member:`, err);
-    return res.status(500).json({ message: 'Failed to delete member', error: err.message });
+    return res.status(500).json({ message: 'Failed to deactivate member', error: err.message });
   }
 };
 

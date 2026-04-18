@@ -19,9 +19,9 @@ exports.addAttendance = async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const member = await Member.findByPk(memberId);
+    const member = await Member.findOne({ where: { id: memberId, isActive: true } });
     if (!member) {
-      return res.status(404).json({ error: 'Member not found' });
+      return res.status(404).json({ error: 'Member not found or inactive' });
     }
 
     if (Number(member.remainingLessons) <= 0) {
