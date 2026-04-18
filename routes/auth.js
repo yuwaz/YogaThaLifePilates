@@ -8,7 +8,7 @@ const { User } = require('../models');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
-// Apply CORS to all /auth routes
+// Apply CORS to all /auth routes (in addition to global)
 router.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

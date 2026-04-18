@@ -17,7 +17,7 @@ const attendancesRoutes = require('./routes/settings/attendances');
 const reportsRoutes = require('./routes/settings/reports');
 
 const app = express();
-// General CORS for all routes (existing behavior)
+// Apply CORS globally before all routes
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -25,7 +25,14 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
-// Auth routes (CORS is now handled in the router itself)
+// Keep special CORS preflight for /auth/login
+app.options('/auth/login', cors({
+  origin: '*',
+  methods: ['POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Auth routes (CORS also handled in router)
 app.use('/auth', authRoutes);
 app.use('/settings/users', usersRoutes);
 app.use('/settings/salons', salonsRoutes);

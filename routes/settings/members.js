@@ -1,5 +1,3 @@
-// Restore/reactivate member
-router.post('/:id/restore', authorizeRoles(['admin']), controller.restoreMember);
 const express = require('express');
 const controller = require('../../controllers/memberController');
 const { authenticateToken, authorizeRoles } = require('../../middleware/auth');
@@ -8,6 +6,8 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
+// Restore/reactivate member
+router.post('/:id/restore', authorizeRoles(['admin']), controller.restoreMember);
 router.get('/', authorizeRoles(['admin', 'instructor']), controller.getMembers);
 router.get('/all', authorizeRoles(['admin']), controller.getAllMembers);
 router.get('/:id', authorizeRoles(['admin', 'instructor']), controller.getMember);
