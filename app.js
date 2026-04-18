@@ -17,6 +17,7 @@ const attendancesRoutes = require('./routes/settings/attendances');
 const reportsRoutes = require('./routes/settings/reports');
 
 const app = express();
+// General CORS for all routes (existing behavior)
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -24,8 +25,7 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
-// Auth routes
-
+// Auth routes (CORS is now handled in the router itself)
 app.use('/auth', authRoutes);
 app.use('/settings/users', usersRoutes);
 app.use('/settings/salons', salonsRoutes);

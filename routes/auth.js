@@ -1,4 +1,6 @@
+
 const express = require('express');
+const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
@@ -6,8 +8,18 @@ const { User } = require('../models');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
+// Apply CORS to all /auth routes
+router.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Login route
 router.post('/login', async (req, res) => {
+  console.log('[AUTH BACKEND] login hit');
+  console.log('[AUTH BACKEND] method:', req.method);
+  console.log('[AUTH BACKEND] origin:', req.headers.origin);
   const { username, password } = req.body;
   try {
     // Log which database file is being used
