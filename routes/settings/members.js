@@ -1,13 +1,12 @@
-// Delete assigned lesson package from member
-router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizeRoles(['admin']), controller.deleteAssignedLessonPackage);
 const express = require('express');
+const router = express.Router();
 const controller = require('../../controllers/memberController');
 const { authenticateToken, authorizeRoles } = require('../../middleware/auth');
 
-const router = express.Router();
-
 router.use(authenticateToken);
 
+// Delete assigned lesson package from member
+router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizeRoles(['admin']), controller.deleteAssignedLessonPackage);
 // Restore/reactivate member
 router.post('/:id/restore', authorizeRoles(['admin']), controller.restoreMember);
 router.get('/', authorizeRoles(['admin', 'instructor']), controller.getMembers);
