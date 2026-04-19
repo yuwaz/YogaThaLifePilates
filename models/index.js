@@ -9,6 +9,7 @@ const Reservation = require('./reservation');
 const Attendance = require('./attendance');
 const Payment = require('./payment');
 const PaymentMethod = require('./paymentMethod');
+const MemberLessonPackage = require('./memberLessonPackage');
 
 const sequelize = new Sequelize(process.env.DATABASE_URL || 'sqlite::memory:', {
   dialect: 'sqlite',
@@ -28,7 +29,13 @@ const models = {
   Attendance: Attendance(sequelize),
   Payment: Payment(sequelize),
   PaymentMethod: PaymentMethod(sequelize),
+  MemberLessonPackage: MemberLessonPackage(sequelize),
 };
+// MemberLessonPackage associations
+models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
+models.MemberLessonPackage.belongsTo(models.LessonPackage, { foreignKey: 'lessonPackageId' });
+models.Member.hasMany(models.MemberLessonPackage, { foreignKey: 'memberId' });
+models.LessonPackage.hasMany(models.MemberLessonPackage, { foreignKey: 'lessonPackageId' });
 
 // Associations
 models.Equipment.belongsTo(models.Salon, { foreignKey: 'salonId' });

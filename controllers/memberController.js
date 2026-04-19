@@ -53,7 +53,26 @@ exports.getAllMembers = async (req, res) => {
 exports.getMember = async (req, res) => {
   const member = await Member.findByPk(req.params.id);
   if (!member) return res.sendStatus(404);
-  res.json(member);
+  // Get assigned lesson packages
+  const assignments = await MemberLessonPackage.findAll({
+    where: { memberId: member.id },
+    include: [{
+      model: LessonPackage,
+      attributes: ['id', 'name', 'lessonCount', 'price']
+    }],
+    order: [['assignedAt', 'DESC']]
+  });
+  const assignedLessonPackages = assignments.map(a => ({
+    id: a.id,
+    lessonPackageId: a.lessonPackageId,
+    name: a.LessonPackage?.name,
+    lessonCount: a.LessonPackage?.lessonCount,
+    price: a.LessonPackage?.price,
+    assignedAt: a.assignedAt
+  }));
+  const memberObj = member.toJSON();
+  memberObj.assignedLessonPackages = assignedLessonPackages;
+  res.json(memberObj);
 };
 
 exports.updateMember = async (req, res) => {
@@ -110,6 +129,7 @@ exports.deleteMember = async (req, res) => {
 };
 
 // Add lesson package to member
+const { MemberLessonPackage } = require('../models');
 exports.addLessonPackage = async (req, res) => {
   try {
     const { lessonPackageId } = req.body;
@@ -122,6 +142,12 @@ exports.addLessonPackage = async (req, res) => {
     member.totalDebt = newDebt;
     member.remainingLessons = Number(member.remainingLessons) + Number(lessonPackage.lessonCount);
     await member.save();
+    // Insert assignment record
+    await MemberLessonPackage.create({
+      memberId: member.id,
+      lessonPackageId: lessonPackage.id,
+      assignedAt: new Date(),
+    });
     res.json(member);
   } catch (err) {
     res.status(400).json({ error: err.message });
