@@ -1,4 +1,5 @@
 const { Sequelize } = require('sequelize');
+const path = require('path');
 const User = require('./user');
 const Salon = require('./salon');
 const Equipment = require('./equipment');
@@ -11,9 +12,11 @@ const Payment = require('./payment');
 const PaymentMethod = require('./paymentMethod');
 const MemberLessonPackage = require('./memberLessonPackage');
 
-const sequelize = new Sequelize(process.env.DATABASE_URL || 'sqlite::memory:', {
+const dbPath = path.resolve('/var/www/yogatha-backend/database.sqlite');
+console.log('USING DB:', dbPath);
+const sequelize = new Sequelize({
   dialect: 'sqlite',
-  storage: './database.sqlite',
+  storage: dbPath,
   logging: false,
 });
 
