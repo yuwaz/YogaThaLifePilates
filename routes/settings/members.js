@@ -1,3 +1,5 @@
+// Delete assigned lesson package from member
+router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizeRoles(['admin']), controller.deleteAssignedLessonPackage);
 const express = require('express');
 const controller = require('../../controllers/memberController');
 const { authenticateToken, authorizeRoles } = require('../../middleware/auth');

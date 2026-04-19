@@ -1,3 +1,21 @@
+// Delete assigned lesson package from member
+exports.deleteAssignedLessonPackage = async (req, res) => {
+  const { memberId, assignedPackageId } = req.params;
+  const assignment = await MemberLessonPackage.findByPk(assignedPackageId, {
+    include: [{ model: LessonPackage, attributes: ['lessonCount', 'price'] }]
+  });
+  if (!assignment || assignment.memberId != memberId) return res.sendStatus(404);
+  const member = await Member.findByPk(memberId);
+  if (!member) return res.sendStatus(404);
+  // Reverse effect
+  if (assignment.LessonPackage) {
+    member.remainingLessons = Math.max(0, Number(member.remainingLessons) - Number(assignment.LessonPackage.lessonCount));
+    member.totalDebt = Math.max(0, Number(member.totalDebt) - Number(assignment.LessonPackage.price));
+    await member.save();
+  }
+  await assignment.destroy();
+  res.sendStatus(204);
+};
 // Restore/reactivate member (admin only)
 exports.restoreMember = async (req, res) => {
   try {
