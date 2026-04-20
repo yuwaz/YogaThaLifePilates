@@ -2,7 +2,14 @@ const { Attendance, Member } = require('../models');
 
 exports.getAttendance = async (req, res) => {
   try {
+    let where = {};
+    if (req.query.assignedSalonIds) {
+      // Only for instructors: restrict to assigned salons
+      console.log('[DEBUG] Filtering attendances for assignedSalonIds:', req.query.assignedSalonIds);
+      where.salonId = req.query.assignedSalonIds;
+    }
     const attendanceList = await Attendance.findAll({
+      where,
       order: [['date', 'DESC']],
     });
     res.json(attendanceList);

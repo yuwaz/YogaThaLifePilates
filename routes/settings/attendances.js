@@ -1,5 +1,36 @@
 const express = require('express');
-const { authenticateToken, authorizeRoles } = require('../../middleware/auth');
+const { authenticateToken } = require('../../middleware/auth');
+// Custom middleware for attendance permissions
+function attendancePermission(requiredPermission) {
+  return (req, res, next) => {
+    const { role, permissions, assignedSalonIds } = req.user;
+    console.log('[DEBUG] role:', role);
+    console.log('[DEBUG] permissions:', permissions);
+    console.log('[DEBUG] assignedSalonIds:', assignedSalonIds);
+    console.log('[DEBUG] requiredPermission:', requiredPermission);
+
+    if (role === 'admin') {
+      return next();
+    }
+    if (role === 'instructor') {
+      if (!permissions || !permissions.includes(requiredPermission)) {
+        console.log('[DEBUG] 403: Instructor missing permission:', requiredPermission);
+        return res.status(403).json({ error: 'Forbidden: missing permission' });
+      }
+      // For POST, check salonId in assignedSalonIds
+      if (req.method === 'POST') {
+        const salonId = req.body.salonId;
+        if (!salonId || !assignedSalonIds.includes(Number(salonId))) {
+          console.log('[DEBUG] 403: Instructor not assigned to salon:', salonId);
+          return res.status(403).json({ error: 'Forbidden: not assigned to salon' });
+        }
+      }
+      return next();
+    }
+    console.log('[DEBUG] 403: Role not allowed:', role);
+    return res.status(403).json({ error: 'Forbidden: role not allowed' });
+  };
+}
 const {
   getAttendance,
   addAttendance,
@@ -11,9 +42,21 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
-router.get('/', authorizeRoles(['admin']), getAttendance);
-router.post('/', authorizeRoles(['admin']), addAttendance);
-router.put('/:id', authorizeRoles(['admin']), updateAttendance);
-router.delete('/:id', authorizeRoles(['admin']), deleteAttendance);
+
+// GET: restrict to assigned salons for instructors
+router.get('/', attendancePermission('attendances'), (req, res, next) => {
+  if (req.user.role === 'instructor') {
+    // Patch req.query to filter by assignedSalonIds
+    req.query.assignedSalonIds = req.user.assignedSalonIds;
+  }
+  return getAttendance(req, res, next);
+});
+
+// POST: instructor must have salonId in assignedSalonIds
+router.post('/', attendancePermission('attendances'), addAttendance);
+
+// PUT/DELETE: only admin for now (can extend if needed)
+router.put('/:id', attendancePermission('attendances'), updateAttendance);
+router.delete('/:id', attendancePermission('attendances'), deleteAttendance);
 
 module.exports = router;
