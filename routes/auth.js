@@ -36,13 +36,22 @@ router.post('/login', async (req, res) => {
 
     // Get permissions for the user's role
     const permissionsMap = require('../permissions');
-    const permissions = permissionsMap[user.role] || [];
-
-    const token = jwt.sign({ id: user.id, role: user.role, assignedSalonIds: user.assignedSalonIds }, JWT_SECRET, { expiresIn: '1d' });
+    let permissions = permissionsMap[user.role] || [];
+    // Defensive: parse permissions/assignedSalonIds if stored as JSON strings
+    let assignedSalonIds = user.assignedSalonIds;
+    if (typeof assignedSalonIds === 'string') {
+      try { assignedSalonIds = JSON.parse(assignedSalonIds); } catch { assignedSalonIds = []; }
+    }
+    if (typeof permissions === 'string') {
+      try { permissions = JSON.parse(permissions); } catch { permissions = []; }
+    }
+    const payload = { id: user.id, role: user.role, assignedSalonIds, permissions };
+    console.log('[DEBUG] JWT payload for sign:', payload);
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' });
     res.json({
       token,
       role: user.role,
-      assignedSalonIds: user.assignedSalonIds,
+      assignedSalonIds,
       permissions,
     });
   } catch (err) {
