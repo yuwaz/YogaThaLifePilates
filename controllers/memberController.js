@@ -62,19 +62,27 @@ exports.createMember = async (req, res) => {
 };
 
 exports.getMembers = async (req, res) => {
-  const onlyMyMembers = req.query.onlyMyMembers === 'true';
-  console.log('[DEBUG] req.user.id:', req.user.id);
-  console.log('[DEBUG] req.user.role:', req.user.role);
-  console.log('[DEBUG] onlyMyMembers query:', onlyMyMembers);
-  let where = { isActive: true };
-  let filterMode = 'all';
-  if (req.user.role === 'instructor' && onlyMyMembers) {
-    where.assignedInstructorId = req.user.id;
-    filterMode = 'onlyMyMembers';
+  try {
+    console.log('[DEBUG] Entering getMembers endpoint');
+    console.log('[DEBUG] req.user:', req.user);
+    console.log('[DEBUG] req.query:', req.query);
+    const onlyMyMembers = req.query.onlyMyMembers === 'true';
+    let where = { isActive: true };
+    let filterMode = 'all';
+    if (req.user.role === 'instructor' && onlyMyMembers) {
+      where.assignedInstructorId = req.user.id;
+      filterMode = 'onlyMyMembers';
+    }
+    console.log('[DEBUG] final member filter mode:', filterMode);
+    console.log('[DEBUG] before DB query, where:', where);
+    const members = await Member.findAll({ where });
+    console.log('[DEBUG] after DB query, count:', members.length);
+    console.log('[DEBUG] before response.json');
+    res.json(members);
+  } catch (err) {
+    console.error('[DEBUG] getMembers error:', err && err.message, err && err.stack);
+    res.status(500).json({ error: 'Failed to fetch members', details: err && err.message });
   }
-  console.log('[DEBUG] final member filter mode:', filterMode);
-  const members = await Member.findAll({ where });
-  res.json(members);
 };
 
 // GET /members/all (admin only)
