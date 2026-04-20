@@ -134,16 +134,27 @@ exports.createReservation = async (req, res) => {
 };
 
 exports.getReservations = async (req, res) => {
-  const where = {};
-  // Instructors only see their assigned salons
+  const onlyMyMembers = req.query.onlyMyMembers === 'true';
+  console.log('[DEBUG] req.user.id:', req.user.id);
+  console.log('[DEBUG] req.user.role:', req.user.role);
+  console.log('[DEBUG] onlyMyMembers query:', onlyMyMembers);
+  let where = {};
+  let memberWhere = {};
+  let filterMode = 'all';
   if (req.user.role === 'instructor') {
     where.salonId = req.user.assignedSalonIds;
+    if (onlyMyMembers) {
+      memberWhere.assignedInstructorId = req.user.id;
+      filterMode = 'onlyMyMembers';
+    }
   }
+  console.log('[DEBUG] final reservation filter mode:', filterMode);
   const reservations = await Reservation.findAll({
     where,
     include: [{
       model: Member,
-      attributes: ['id', 'name', 'memberTypeId'],
+      attributes: ['id', 'name', 'memberTypeId', 'assignedInstructorId'],
+      where: Object.keys(memberWhere).length ? memberWhere : undefined,
       include: [{
         model: MemberType,
         attributes: ['id', 'name', 'color']

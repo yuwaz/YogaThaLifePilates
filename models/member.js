@@ -38,6 +38,13 @@ module.exports = (sequelize) => {
       defaultValue: 0,
     },
     assignedSalonIds: {
+      // ...existing code...
+    },
+    assignedInstructorId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      // No FK constraint for minimal risk, but can be added later
+    },
       type: DataTypes.JSON,
       allowNull: false,
       defaultValue: [],

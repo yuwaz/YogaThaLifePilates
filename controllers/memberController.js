@@ -40,7 +40,7 @@ const { Op } = require('sequelize');
 
 exports.createMember = async (req, res) => {
   try {
-    const { name, phone, email, memberTypeId, assignedSalonIds } = req.body;
+    const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
     if (!name || !phone || !email || !memberTypeId || !assignedSalonIds) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -49,7 +49,12 @@ exports.createMember = async (req, res) => {
     }
     if (!/^\+90[0-9]{10}$/.test(phone)) return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
     if (!Array.isArray(assignedSalonIds)) return res.status(400).json({ error: 'assignedSalonIds must be an array' });
-    const member = await Member.create({ name, phone, email, memberTypeId, assignedSalonIds });
+    // Minimal validation: allow null or integer for assignedInstructorId
+    let instructorId = assignedInstructorId;
+    if (instructorId !== undefined && instructorId !== null && isNaN(Number(instructorId))) {
+      return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
+    }
+    const member = await Member.create({ name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -57,7 +62,18 @@ exports.createMember = async (req, res) => {
 };
 
 exports.getMembers = async (req, res) => {
-  const members = await Member.findAll({ where: { isActive: true } });
+  const onlyMyMembers = req.query.onlyMyMembers === 'true';
+  console.log('[DEBUG] req.user.id:', req.user.id);
+  console.log('[DEBUG] req.user.role:', req.user.role);
+  console.log('[DEBUG] onlyMyMembers query:', onlyMyMembers);
+  let where = { isActive: true };
+  let filterMode = 'all';
+  if (req.user.role === 'instructor' && onlyMyMembers) {
+    where.assignedInstructorId = req.user.id;
+    filterMode = 'onlyMyMembers';
+  }
+  console.log('[DEBUG] final member filter mode:', filterMode);
+  const members = await Member.findAll({ where });
   res.json(members);
 };
 
@@ -90,12 +106,13 @@ exports.getMember = async (req, res) => {
   }));
   const memberObj = member.toJSON();
   memberObj.assignedLessonPackages = assignedLessonPackages;
+  // Always include assignedInstructorId in detail
   res.json(memberObj);
 };
 
 exports.updateMember = async (req, res) => {
   try {
-    const { name, phone, email, memberTypeId, assignedSalonIds } = req.body;
+    const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
     const member = await Member.findByPk(req.params.id);
     if (!member) return res.sendStatus(404);
     if (phone && !/^\+90[0-9]{10}$/.test(phone)) return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
@@ -108,6 +125,13 @@ exports.updateMember = async (req, res) => {
     if (email) member.email = email;
     if (memberTypeId) member.memberTypeId = memberTypeId;
     if (assignedSalonIds) member.assignedSalonIds = assignedSalonIds;
+    // Minimal validation: allow null or integer for assignedInstructorId
+    if (assignedInstructorId !== undefined) {
+      if (assignedInstructorId !== null && isNaN(Number(assignedInstructorId))) {
+        return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
+      }
+      member.assignedInstructorId = assignedInstructorId;
+    }
     await member.save();
     res.json(member);
   } catch (err) {
