@@ -60,7 +60,11 @@ router.use(authenticateToken);
 
 
 // GET: restrict to assigned salons for instructors
-router.get('/', attendancePermission('attendances'), (req, res, next) => {
+
+router.get('/', (req, res, next) => {
+  console.log('[DEBUG] req.user before permission middleware:', req.user);
+  next();
+}, attendancePermission('attendances'), (req, res, next) => {
   if (req.user.role === 'instructor') {
     // Patch req.query to filter by assignedSalonIds
     req.query.assignedSalonIds = req.user.assignedSalonIds;
@@ -69,7 +73,10 @@ router.get('/', attendancePermission('attendances'), (req, res, next) => {
 });
 
 // POST: instructor must have salonId in assignedSalonIds
-router.post('/', attendancePermission('attendances'), addAttendance);
+router.post('/', (req, res, next) => {
+  console.log('[DEBUG] req.user before permission middleware:', req.user);
+  next();
+}, attendancePermission('attendances'), addAttendance);
 
 // PUT/DELETE: only admin for now (can extend if needed)
 router.put('/:id', attendancePermission('attendances'), updateAttendance);
