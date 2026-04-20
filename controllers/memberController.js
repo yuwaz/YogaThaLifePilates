@@ -110,7 +110,11 @@ exports.getMember = async (req, res) => {
     name: a.LessonPackage?.name,
     lessonCount: a.LessonPackage?.lessonCount,
     price: a.LessonPackage?.price,
-    assignedAt: a.assignedAt
+    assignedAt: a.assignedAt,
+    originalPrice: a.originalPrice,
+    discountType: a.discountType,
+    discountValue: a.discountValue,
+    finalPrice: a.finalPrice
   }));
   const memberObj = member.toJSON();
   memberObj.assignedLessonPackages = assignedLessonPackages;
@@ -182,23 +186,62 @@ exports.deleteMember = async (req, res) => {
 const { MemberLessonPackage } = require('../models');
 exports.addLessonPackage = async (req, res) => {
   try {
-    const { lessonPackageId } = req.body;
+    const { lessonPackageId, discountType, discountValue } = req.body;
     const member = await Member.findByPk(req.params.id);
     if (!member) return res.sendStatus(404);
     const lessonPackage = await LessonPackage.findByPk(lessonPackageId);
     if (!lessonPackage) return res.status(400).json({ error: 'Lesson package not found' });
-    const newDebt = Number(member.totalDebt) + Number(lessonPackage.price);
+
+    // Discount logic
+    const originalPrice = Number(lessonPackage.price);
+    let finalPrice = originalPrice;
+    let safeDiscountType = null;
+    let safeDiscountValue = null;
+    if (discountType === 'amount' || discountType === 'percent') {
+      safeDiscountType = discountType;
+      safeDiscountValue = Number(discountValue) || 0;
+      if (discountType === 'amount') {
+        if (safeDiscountValue < 0 || safeDiscountValue > originalPrice) {
+          return res.status(400).json({ error: 'Invalid discount amount' });
+        }
+        finalPrice = originalPrice - safeDiscountValue;
+      } else if (discountType === 'percent') {
+        if (safeDiscountValue < 0 || safeDiscountValue > 100) {
+          return res.status(400).json({ error: 'Invalid discount percent' });
+        }
+        finalPrice = originalPrice * (1 - safeDiscountValue / 100);
+      }
+      if (finalPrice < 0) finalPrice = 0;
+    }
+
+    // Debt logic: use finalPrice
+    const newDebt = Number(member.totalDebt) + finalPrice;
     if (newDebt < 0) return res.status(400).json({ error: 'totalDebt cannot be negative' });
     member.totalDebt = newDebt;
     member.remainingLessons = Number(member.remainingLessons) + Number(lessonPackage.lessonCount);
     await member.save();
-    // Insert assignment record
-    await MemberLessonPackage.create({
+    // Insert assignment record with pricing fields
+    const assignment = await MemberLessonPackage.create({
       memberId: member.id,
       lessonPackageId: lessonPackage.id,
       assignedAt: new Date(),
+      originalPrice,
+      discountType: safeDiscountType,
+      discountValue: safeDiscountValue,
+      finalPrice
     });
-    res.json(member);
+    // Return assignment info (including pricing fields)
+    res.json({
+      memberId: member.id,
+      lessonPackageId: lessonPackage.id,
+      assignedAt: assignment.assignedAt,
+      originalPrice,
+      discountType: safeDiscountType,
+      discountValue: safeDiscountValue,
+      finalPrice,
+      memberTotalDebt: member.totalDebt,
+      memberRemainingLessons: member.remainingLessons
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

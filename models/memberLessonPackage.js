@@ -22,6 +22,25 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    originalPrice: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+    discountType: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      validate: {
+        isIn: [[null, 'amount', 'percent']]
+      }
+    },
+    discountValue: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    finalPrice: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
   });
   return MemberLessonPackage;
 };
