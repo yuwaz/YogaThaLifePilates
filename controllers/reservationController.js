@@ -103,11 +103,15 @@ exports.createReservation = async (req, res) => {
     if (equipment.salonId !== Number(salonId)) return res.status(400).json({ error: 'Equipment does not belong to this salon' });
     if (!['Mat', 'Reformer'].includes(equipment.type)) return res.status(400).json({ error: 'Invalid equipment type' });
     // Validate member exists and is assigned to salon
-    const member = await Member.findOne({ where: { id: memberId, isActive: true } });
+    const member = await Member.findOne({ where: { id: memberId, isActive: true }, include: [{ model: MemberType, attributes: ['id', 'isCardBased'] }] });
     if (!member) return res.status(400).json({ error: 'Member not found or inactive' });
     if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
-    // Check member has enough lessons
-    if (member.remainingLessons <= 0) return res.status(400).json({ error: 'No remaining lessons' });
+    // Check member type for card-based logic
+    const isCardBased = member.MemberType && member.MemberType.isCardBased === true;
+    if (!isCardBased) {
+      // Check member has enough lessons for non-card-based
+      if (member.remainingLessons <= 0) return res.status(400).json({ error: 'No remaining lessons' });
+    }
     // Check slot availability (prevent double booking)
     const available = await isSlotAvailable(equipmentId, date, time);
     if (!available) return res.status(400).json({ error: 'Slot not available' });
