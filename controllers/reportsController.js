@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment } = require('../models');
+const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance } = require('../models');
 
 exports.getReports = async (req, res) => {
   try {
@@ -61,54 +61,45 @@ exports.getReports = async (req, res) => {
         revenue
       });
     }
-    // Card-based attendance revenue summary
-    // 1. Find all card-based member types
-    const cardBasedMemberTypes = memberTypes.filter(mt => mt.isCardBased === true);
-    const cardBasedMemberTypeIds = cardBasedMemberTypes.map(mt => mt.id);
-
-    // 2. Find all attendances for members of card-based types in date range
-    let attendanceWhere = {
-      date: dateFilter
-    };
-    if (memberIds.length) attendanceWhere.memberId = { [Op.in]: memberIds };
-    // Get all attendances in range
-    const attendances = await Attendance.findAll({ where: attendanceWhere });
-
-    // 3. Join attendances to members and member types
-    // We'll need to load all members in this report (already loaded as 'members')
-    // Build a map for quick lookup
-    const memberIdToType = {};
-    members.forEach(m => { memberIdToType[m.id] = m.memberTypeId; });
-
-    // 4. Filter attendances to only card-based member types
-    const cardBasedAttendances = attendances.filter(a => cardBasedMemberTypeIds.includes(memberIdToType[a.memberId]));
-
-    // 5. Count and group by memberTypeId
-    const cardBasedSummaryMap = {};
-    cardBasedAttendances.forEach(a => {
-      const mtId = memberIdToType[a.memberId];
-      if (!cardBasedSummaryMap[mtId]) {
-        cardBasedSummaryMap[mtId] = { attendanceCount: 0 };
-      }
-      cardBasedSummaryMap[mtId].attendanceCount++;
-    });
-
-    // 6. Build summary array
-    const cardBasedSummary = cardBasedMemberTypes.map(mt => {
-      const attendanceCount = cardBasedSummaryMap[mt.id]?.attendanceCount || 0;
-      const cardUsageFee = Number(mt.cardUsageFee || 0);
-      return {
-        memberTypeId: mt.id,
-        memberTypeName: mt.name,
-        attendanceCount,
-        cardUsageFee,
-        revenue: attendanceCount * cardUsageFee
-      };
-    }).filter(row => row.attendanceCount > 0);
-
-    // 7. Totals
-    const totalCardBasedAttendanceCount = cardBasedSummary.reduce((sum, row) => sum + row.attendanceCount, 0);
-    const totalCardBasedRevenue = cardBasedSummary.reduce((sum, row) => sum + row.revenue, 0);
+    // Card-based attendance revenue summary (safe, will not break reports)
+    let totalCardBasedAttendanceCount = 0;
+    let totalCardBasedRevenue = 0;
+    let cardBasedSummary = [];
+    try {
+      const cardBasedMemberTypes = memberTypes.filter(mt => mt.isCardBased === true);
+      const cardBasedMemberTypeIds = cardBasedMemberTypes.map(mt => mt.id);
+      let attendanceWhere = { date: dateFilter };
+      if (memberIds.length) attendanceWhere.memberId = { [Op.in]: memberIds };
+      const attendances = await Attendance.findAll({ where: attendanceWhere });
+      const memberIdToType = {};
+      members.forEach(m => { memberIdToType[m.id] = m.memberTypeId; });
+      const cardBasedAttendances = attendances.filter(a => cardBasedMemberTypeIds.includes(memberIdToType[a.memberId]));
+      const cardBasedSummaryMap = {};
+      cardBasedAttendances.forEach(a => {
+        const mtId = memberIdToType[a.memberId];
+        if (!cardBasedSummaryMap[mtId]) {
+          cardBasedSummaryMap[mtId] = { attendanceCount: 0 };
+        }
+        cardBasedSummaryMap[mtId].attendanceCount++;
+      });
+      cardBasedSummary = cardBasedMemberTypes.map(mt => {
+        const attendanceCount = cardBasedSummaryMap[mt.id]?.attendanceCount || 0;
+        const cardUsageFee = Number(mt.cardUsageFee || 0);
+        return {
+          memberTypeId: mt.id,
+          memberTypeName: mt.name,
+          attendanceCount,
+          cardUsageFee,
+          revenue: attendanceCount * cardUsageFee
+        };
+      }).filter(row => row.attendanceCount > 0);
+      totalCardBasedAttendanceCount = cardBasedSummary.reduce((sum, row) => sum + row.attendanceCount, 0);
+      totalCardBasedRevenue = cardBasedSummary.reduce((sum, row) => sum + row.revenue, 0);
+    } catch (err) {
+      totalCardBasedAttendanceCount = 0;
+      totalCardBasedRevenue = 0;
+      cardBasedSummary = [];
+    }
     // Occupancy
     const reservationWhere = {
       date: dateFilter,
