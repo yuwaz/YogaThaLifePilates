@@ -250,16 +250,19 @@ exports.getReservation = async (req, res) => {
 }
 
 exports.deleteReservation = async (req, res) => {
-  const reservation = await Reservation.findByPk(req.params.id);
+  const id = req.params.id;
+  const reservation = await Reservation.findByPk(id);
   if (!reservation) return res.sendStatus(404);
   // Instructors can only delete in their assigned salons
   if (req.user.role === 'instructor' && !req.user.assignedSalonIds.includes(reservation.salonId)) {
     return res.sendStatus(403);
   }
-  // Support deleteScope: 'single' | 'future'
-  const deleteScope = req.query.deleteScope || req.body?.deleteScope || 'single';
+  const deleteScope = req.query.deleteScope || 'single';
+  console.log('[Reservation Delete] id:', id);
+  console.log('[Reservation Delete] scope:', deleteScope);
+  console.log('[Reservation Delete] recurrenceGroupId:', reservation.recurrenceGroupId);
+  console.log('[Reservation Delete] selected date:', reservation.date);
   if (deleteScope === 'future' && reservation.recurrenceGroupId) {
-    // Delete all future reservations in the group (including this one)
     await Reservation.destroy({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
