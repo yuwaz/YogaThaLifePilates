@@ -62,6 +62,7 @@ exports.updateReservation = async (req, res) => {
   }
 };
 const { Reservation, Equipment, Salon, Member, MemberType } = require('../models');
+const { Op } = require('sequelize');
 
 // Helper to format enriched reservation
 function formatReservation(reservation) {
