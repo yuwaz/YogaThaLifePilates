@@ -78,7 +78,10 @@ function formatReservation(reservation) {
     memberTypeName: memberType.name,
     memberTypeColor: memberType.color,
     date: reservation.date,
-    time: reservation.time
+    time: reservation.time,
+    recurrenceGroupId: reservation.recurrenceGroupId,
+    recurrenceType: reservation.recurrenceType,
+    recurrenceEndDate: reservation.recurrenceEndDate
   };
 }
 
