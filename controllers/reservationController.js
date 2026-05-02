@@ -143,7 +143,7 @@ exports.createReservation = async (req, res) => {
       endDate = new Date(recurrenceEndDate);
     } else {
       endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + 7 * 11); // 12 weeks total
+      endDate.setDate(endDate.getDate() + 7 * 155); // 156 weeks (3 years)
     }
     // Generate all dates
     const reservationDates = [];
