@@ -152,6 +152,7 @@ exports.updateMember = async (req, res) => {
 };
 
 exports.deleteMember = async (req, res) => {
+  const { sequelize } = require('../models');
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admin can deactivate members' });
@@ -161,21 +162,18 @@ exports.deleteMember = async (req, res) => {
     if (!member) {
       return res.status(404).json({ message: 'Member not found' });
     }
-    // Soft delete: set isActive=false, deletedAt=now
-    member.isActive = false;
-    member.deletedAt = new Date();
-    await member.save();
-
-    // Delete all future reservations for this member
-    await Reservation.destroy({
-      where: {
-        memberId,
-        date: { [Op.gt]: new Date().toISOString().slice(0, 10) }
-      }
+    await sequelize.transaction(async (t) => {
+      // Soft delete: set isActive=false, deletedAt=now
+      member.isActive = false;
+      member.deletedAt = new Date();
+      await member.save({ transaction: t });
+      // Delete all reservations for this member (single and recurring)
+      await Reservation.destroy({
+        where: { memberId },
+        transaction: t
+      });
+      // Do NOT delete attendance or payments
     });
-    // Delete all attendance records for this member
-    await Attendance.destroy({ where: { memberId } });
-
     return res.json({ message: 'Member deactivated successfully', memberId });
   } catch (err) {
     return res.status(500).json({ message: 'Failed to deactivate member', error: err.message });
