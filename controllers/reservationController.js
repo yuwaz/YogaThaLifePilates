@@ -90,7 +90,7 @@ async function isSlotAvailable(equipmentId, date, time) {
 
 exports.createReservation = async (req, res) => {
   try {
-    const { memberId, equipmentId, salonId, date, time } = req.body;
+    const { memberId, equipmentId, salonId, date, time, repeatWeekly, recurrenceEndDate } = req.body;
     if (!memberId || !equipmentId || !salonId || !date || !time) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -106,22 +106,81 @@ exports.createReservation = async (req, res) => {
     const member = await Member.findOne({ where: { id: memberId, isActive: true }, include: [{ model: MemberType, attributes: ['id', 'isCardBased'] }] });
     if (!member) return res.status(400).json({ error: 'Member not found or inactive' });
     if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
-    // Check member type for card-based logic
-    const isCardBased = member.MemberType && member.MemberType.isCardBased === true;
-    if (!isCardBased) {
-      // Check member has enough lessons for non-card-based
-      if (member.remainingLessons <= 0) return res.status(400).json({ error: 'No remaining lessons' });
+    // --- Remove remainingLessons check for reservation creation ---
+    // --- Recurring reservation logic ---
+    if (!repeatWeekly) {
+      // Single reservation (legacy behavior)
+      // Check slot availability (prevent double booking)
+      const available = await isSlotAvailable(equipmentId, date, time);
+      if (!available) return res.status(400).json({ error: 'Slot not available' });
+      // Prevent double booking for member at same time
+      const memberDouble = await Reservation.count({ where: { memberId, date, time } });
+      if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
+      // Create reservation
+      const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
+      // Fetch enriched reservation for response
+      const enriched = await Reservation.findByPk(reservation.id, {
+        include: [{
+          model: Member,
+          attributes: ['id', 'name', 'memberTypeId'],
+          include: [{
+            model: MemberType,
+            attributes: ['id', 'name', 'color']
+          }]
+        }]
+      });
+      return res.status(201).json(formatReservation(enriched));
     }
-    // Check slot availability (prevent double booking)
-    const available = await isSlotAvailable(equipmentId, date, time);
-    if (!available) return res.status(400).json({ error: 'Slot not available' });
-    // Prevent double booking for member at same time
-    const memberDouble = await Reservation.count({ where: { memberId, date, time } });
-    if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
-    // Create reservation
-    const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
-    // Fetch enriched reservation for response
-    const enriched = await Reservation.findByPk(reservation.id, {
+    // --- Weekly recurring reservation ---
+    // Calculate dates
+    const startDate = new Date(date);
+    let endDate;
+    if (recurrenceEndDate) {
+      endDate = new Date(recurrenceEndDate);
+    } else {
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 7 * 11); // 12 weeks total
+    }
+    // Generate all dates
+    const reservationDates = [];
+    let current = new Date(startDate);
+    while (current <= endDate) {
+      reservationDates.push(new Date(current));
+      current.setDate(current.getDate() + 7);
+    }
+    // Check for conflicts for all dates
+    for (const d of reservationDates) {
+      const dStr = d.toISOString().slice(0, 10);
+      const slotAvailable = await isSlotAvailable(equipmentId, dStr, time);
+      if (!slotAvailable) {
+        return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
+      }
+      const memberDouble = await Reservation.count({ where: { memberId, date: dStr, time } });
+      if (memberDouble > 0) {
+        return res.status(400).json({ error: `Member already has a reservation at this time for ${dStr} ${time}` });
+      }
+    }
+    // All clear, create all reservations in a transaction
+    const { sequelize } = require('../models');
+    const recurrenceGroupId = `recurr_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+    await sequelize.transaction(async (t) => {
+      for (const d of reservationDates) {
+        const dStr = d.toISOString().slice(0, 10);
+        await Reservation.create({
+          memberId,
+          equipmentId,
+          salonId,
+          date: dStr,
+          time,
+          recurrenceGroupId,
+          recurrenceType: 'weekly',
+          recurrenceEndDate: endDate.toISOString().slice(0, 10)
+        }, { transaction: t });
+      }
+    });
+    // Return all created reservations for this group
+    const created = await Reservation.findAll({
+      where: { recurrenceGroupId },
       include: [{
         model: Member,
         attributes: ['id', 'name', 'memberTypeId'],
@@ -131,7 +190,7 @@ exports.createReservation = async (req, res) => {
         }]
       }]
     });
-    res.status(201).json(formatReservation(enriched));
+    res.status(201).json(created.map(formatReservation));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -194,7 +253,19 @@ exports.deleteReservation = async (req, res) => {
   if (req.user.role === 'instructor' && !req.user.assignedSalonIds.includes(reservation.salonId)) {
     return res.sendStatus(403);
   }
+  // Support deleteScope: 'single' | 'future'
+  const deleteScope = req.query.deleteScope || req.body?.deleteScope || 'single';
+  if (deleteScope === 'future' && reservation.recurrenceGroupId) {
+    // Delete all future reservations in the group (including this one)
+    await Reservation.destroy({
+      where: {
+        recurrenceGroupId: reservation.recurrenceGroupId,
+        date: { $gte: reservation.date }
+      }
+    });
+    return res.sendStatus(204);
+  }
+  // Default: delete only this reservation
   await reservation.destroy();
-  // Do NOT change lesson count on delete
   res.sendStatus(204);
 };

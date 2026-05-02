@@ -27,6 +27,18 @@ module.exports = (sequelize) => {
       type: DataTypes.TIME,
       allowNull: false,
     },
+    recurrenceGroupId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    recurrenceType: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    recurrenceEndDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
   });
   return Reservation;
 };
