@@ -263,10 +263,16 @@ exports.deleteReservation = async (req, res) => {
   console.log('[Reservation Delete] recurrenceGroupId:', reservation.recurrenceGroupId);
   console.log('[Reservation Delete] selected date:', reservation.date);
   if (deleteScope === 'future' && reservation.recurrenceGroupId) {
+    // Ensure correct date comparison (date is string YYYY-MM-DD)
+    const selectedDate = new Date(reservation.date);
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    console.log('[DELETE QUERY]');
+    console.log('group:', reservation.recurrenceGroupId);
+    console.log('date >=', dateStr);
     await Reservation.destroy({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
-        date: { $gte: reservation.date }
+        date: { [Op.gte]: dateStr }
       }
     });
     return res.sendStatus(204);
