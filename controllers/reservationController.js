@@ -1,14 +1,27 @@
 exports.updateReservation = async (req, res) => {
   try {
-    const { memberId, equipmentId, salonId, date, time } = req.body;
+    const { memberId, equipmentId, salonId, date, time, repeatWeekly, updateScope } = req.body;
+    const id = req.params.id;
+    // Debug logs
+    const reservation = await Reservation.findByPk(id);
+    console.log('[Reservation Update] id', id);
+    console.log('[Reservation Update] updateScope', updateScope);
+    console.log('[Reservation Update] repeatWeekly', repeatWeekly);
+    console.log('[Reservation Update] recurrenceGroupId', reservation ? reservation.recurrenceGroupId : null);
+
     if (!memberId || !equipmentId || !salonId || !date || !time) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     if (isNaN(memberId) || isNaN(equipmentId) || isNaN(salonId)) {
       return res.status(400).json({ error: 'Invalid field types' });
     }
-    const reservation = await Reservation.findByPk(req.params.id);
     if (!reservation) return res.sendStatus(404);
+
+    // If single reservation and repeatWeekly === true, block conversion
+    if (!reservation.recurrenceGroupId && repeatWeekly === true) {
+      return res.status(400).json({ error: 'Converting single reservation to weekly is not supported yet' });
+    }
+
     // Validate equipment exists and belongs to salon
     const equipment = await Equipment.findByPk(equipmentId);
     if (!equipment) return res.status(400).json({ error: 'Equipment not found' });
@@ -18,35 +31,76 @@ exports.updateReservation = async (req, res) => {
     const member = await Member.findOne({ where: { id: memberId, isActive: true } });
     if (!member) return res.status(400).json({ error: 'Member not found or inactive' });
     if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
-    // Check slot availability (excluding current reservation)
-    const slotConflict = await Reservation.count({
-      where: {
-        equipmentId,
-        date,
-        time,
-        id: { $ne: reservation.id }
-      }
-    });
-    if (slotConflict > 0) return res.status(400).json({ error: 'Slot not available' });
-    // Prevent double booking for member at same time (excluding current reservation)
-    const memberDouble = await Reservation.count({
-      where: {
+
+    // Default: update only selected reservation
+    if (!updateScope || updateScope === 'single' || !reservation.recurrenceGroupId) {
+      // Check slot availability (excluding current reservation)
+      const slotConflict = await Reservation.count({
+        where: {
+          equipmentId,
+          date,
+          time,
+          id: { $ne: reservation.id }
+        }
+      });
+      if (slotConflict > 0) return res.status(400).json({ error: 'Slot not available' });
+      // Prevent double booking for member at same time (excluding current reservation)
+      const memberDouble = await Reservation.count({
+        where: {
+          memberId,
+          date,
+          time,
+          id: { $ne: reservation.id }
+        }
+      });
+      if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
+      // Update reservation
+      reservation.memberId = memberId;
+      reservation.equipmentId = equipmentId;
+      reservation.salonId = salonId;
+      reservation.date = date;
+      reservation.time = time;
+      await reservation.save();
+      // Fetch enriched reservation for response
+      const enriched = await Reservation.findByPk(reservation.id, {
+        include: [{
+          model: Member,
+          attributes: ['id', 'name', 'memberTypeId'],
+          include: [{
+            model: MemberType,
+            attributes: ['id', 'name', 'color']
+          }]
+        }]
+      });
+      return res.json(formatReservation(enriched));
+    }
+
+    // updateScope === 'future' and reservation has recurrenceGroupId
+    // Update all future reservations in the group (date >= selected)
+    const { Op } = require('sequelize');
+    const selectedDate = new Date(reservation.date);
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    // Update all future reservations (including selected)
+    await Reservation.update(
+      {
         memberId,
-        date,
-        time,
-        id: { $ne: reservation.id }
+        equipmentId,
+        salonId,
+        time
+      },
+      {
+        where: {
+          recurrenceGroupId: reservation.recurrenceGroupId,
+          date: { [Op.gte]: dateStr }
+        }
       }
-    });
-    if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
-    // Update reservation
-    reservation.memberId = memberId;
-    reservation.equipmentId = equipmentId;
-    reservation.salonId = salonId;
-    reservation.date = date;
-    reservation.time = time;
-    await reservation.save();
-    // Fetch enriched reservation for response
-    const enriched = await Reservation.findByPk(reservation.id, {
+    );
+    // Return all updated reservations in the group (future)
+    const updated = await Reservation.findAll({
+      where: {
+        recurrenceGroupId: reservation.recurrenceGroupId,
+        date: { [Op.gte]: dateStr }
+      },
       include: [{
         model: Member,
         attributes: ['id', 'name', 'memberTypeId'],
@@ -56,7 +110,7 @@ exports.updateReservation = async (req, res) => {
         }]
       }]
     });
-    res.json(formatReservation(enriched));
+    return res.json(updated.map(formatReservation));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
