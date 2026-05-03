@@ -7,19 +7,24 @@ exports.getReports = async (req, res) => {
     const dateFilter = {};
     if (startDate) dateFilter[Op.gte] = startDate;
     if (endDate) dateFilter[Op.lte] = endDate;
-    // Salon filter
+    // Salon filter (SQLite-safe)
     let salonIds = [];
-    if (salonId) {
-      salonIds = [Number(salonId)];
+    let members = [];
+    if (salonId !== undefined && salonId !== null) {
+      const salonIdNum = Number(salonId);
+      if (isNaN(salonIdNum)) {
+        return res.status(400).json({ error: 'Geçersiz salon filtresi.' });
+      }
+      salonIds = [salonIdNum];
+      // Fetch all active members, then filter in JS
+      members = await Member.findAll({ where: { isActive: true } });
+      members = members.filter(m => Array.isArray(m.assignedSalonIds) && m.assignedSalonIds.includes(salonIdNum));
     } else {
+      // No salon filter, use all active members
+      members = await Member.findAll({ where: { isActive: true } });
       const salons = await Salon.findAll({ attributes: ['id'] });
       salonIds = salons.map(s => s.id);
     }
-    // Member filter
-    const memberWhere = salonId
-      ? { assignedSalonIds: { [Op.contains]: [Number(salonId)] } }
-      : {};
-    const members = await Member.findAll({ where: memberWhere });
     const memberIds = members.map(m => m.id);
     // MemberType breakdown
     const memberTypes = await MemberType.findAll();
