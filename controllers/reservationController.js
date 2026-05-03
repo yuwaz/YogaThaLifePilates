@@ -17,9 +17,75 @@ exports.updateReservation = async (req, res) => {
     }
     if (!reservation) return res.sendStatus(404);
 
-    // If single reservation and repeatWeekly === true, block conversion
+    // If single reservation and repeatWeekly === true, convert to weekly recurring
     if (!reservation.recurrenceGroupId && repeatWeekly === true) {
-      return res.status(400).json({ error: 'Converting single reservation to weekly is not supported yet' });
+      // Update selected reservation fields
+      reservation.memberId = memberId;
+      reservation.equipmentId = equipmentId;
+      reservation.salonId = salonId;
+      reservation.date = date;
+      reservation.time = time;
+
+      // Generate recurrenceGroupId
+      const recurrenceGroupId = `recurr_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+      reservation.recurrenceGroupId = recurrenceGroupId;
+      reservation.recurrenceType = 'weekly';
+
+      // Calculate 156 weeks (3 years)
+      const startDate = new Date(date);
+      const reservationDates = [];
+      for (let i = 1; i < 156; i++) {
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + 7 * i);
+        reservationDates.push(new Date(d));
+      }
+      const endDate = reservationDates.length > 0 ? reservationDates[reservationDates.length - 1] : startDate;
+      reservation.recurrenceEndDate = endDate.toISOString().slice(0, 10);
+
+      // Check for conflicts for all future dates
+      for (const d of reservationDates) {
+        const dStr = d.toISOString().slice(0, 10);
+        const slotAvailable = await Reservation.count({ where: { equipmentId, date: dStr, time } }) === 0;
+        if (!slotAvailable) {
+          return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
+        }
+        const memberDouble = await Reservation.count({ where: { memberId, date: dStr, time } });
+        if (memberDouble > 0) {
+          return res.status(400).json({ error: `Member already has a reservation at this time for ${dStr} ${time}` });
+        }
+      }
+
+      // Transaction: update selected, create others
+      const { sequelize } = require('../models');
+      await sequelize.transaction(async (t) => {
+        await reservation.save({ transaction: t });
+        for (const d of reservationDates) {
+          const dStr = d.toISOString().slice(0, 10);
+          await Reservation.create({
+            memberId,
+            equipmentId,
+            salonId,
+            date: dStr,
+            time,
+            recurrenceGroupId,
+            recurrenceType: 'weekly',
+            recurrenceEndDate: endDate.toISOString().slice(0, 10)
+          }, { transaction: t });
+        }
+      });
+      // Return all created reservations for this group
+      const created = await Reservation.findAll({
+        where: { recurrenceGroupId },
+        include: [{
+          model: Member,
+          attributes: ['id', 'name', 'memberTypeId'],
+          include: [{
+            model: MemberType,
+            attributes: ['id', 'name', 'color']
+          }]
+        }]
+      });
+      return res.json(created.map(formatReservation));
     }
 
     // Validate equipment exists and belongs to salon
