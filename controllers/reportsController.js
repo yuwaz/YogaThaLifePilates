@@ -65,12 +65,35 @@ exports.getReports = async (req, res) => {
     let totalCardBasedAttendanceCount = 0;
     let totalCardBasedRevenue = 0;
     let cardBasedSummary = [];
+    // --- New: Attendance metrics ---
+    let totalAttendanceCount = 0;
+    let instructorAttendanceBreakdown = [];
     try {
       const cardBasedMemberTypes = memberTypes.filter(mt => mt.isCardBased === true);
       const cardBasedMemberTypeIds = cardBasedMemberTypes.map(mt => mt.id);
       let attendanceWhere = { date: dateFilter };
       if (memberIds.length) attendanceWhere.memberId = { [Op.in]: memberIds };
       const attendances = await Attendance.findAll({ where: attendanceWhere });
+      totalAttendanceCount = attendances.length;
+      // Instructor breakdown (by member.assignedInstructorId)
+      const instructorMap = {};
+      for (const a of attendances) {
+        const member = members.find(m => m.id === a.memberId);
+        const instructorId = member ? member.assignedInstructorId : null;
+        if (instructorId) {
+          if (!instructorMap[instructorId]) {
+            instructorMap[instructorId] = { instructorId, instructorName: null, attendanceCount: 0 };
+          }
+          instructorMap[instructorId].attendanceCount++;
+        }
+      }
+      // Fill instructor names
+      for (const key in instructorMap) {
+        const instructor = await Member.findByPk(instructorMap[key].instructorId);
+        instructorMap[key].instructorName = instructor ? instructor.name : '';
+      }
+      instructorAttendanceBreakdown = Object.values(instructorMap);
+      // Card-based summary (existing logic)
       const memberIdToType = {};
       members.forEach(m => { memberIdToType[m.id] = m.memberTypeId; });
       const cardBasedAttendances = attendances.filter(a => cardBasedMemberTypeIds.includes(memberIdToType[a.memberId]));
@@ -99,6 +122,8 @@ exports.getReports = async (req, res) => {
       totalCardBasedAttendanceCount = 0;
       totalCardBasedRevenue = 0;
       cardBasedSummary = [];
+      totalAttendanceCount = 0;
+      instructorAttendanceBreakdown = [];
     }
     // Occupancy
     const reservationWhere = {
@@ -145,6 +170,18 @@ exports.getReports = async (req, res) => {
         });
       }
     }
+    // --- New: Discount metrics ---
+    // MemberLessonPackage: filter by memberId, assignedAt, and (optionally) salon
+    const { MemberLessonPackage } = require('../models');
+    let discountWhere = {};
+    if (memberIds.length) discountWhere.memberId = { [Op.in]: memberIds };
+    if (startDate || endDate) discountWhere.assignedAt = dateFilter;
+    const assignments = await MemberLessonPackage.findAll({ where: discountWhere });
+    let totalDiscountAmount = 0;
+    for (const a of assignments) {
+      const discount = (a.originalPrice || 0) - (a.finalPrice || 0);
+      if (discount > 0) totalDiscountAmount += discount;
+    }
     // Response
     res.json({
       summary: {
@@ -159,7 +196,9 @@ exports.getReports = async (req, res) => {
         totalSlots,
         occupancyRate,
         totalCardBasedAttendanceCount,
-        totalCardBasedRevenue
+        totalCardBasedRevenue,
+        totalAttendanceCount,
+        totalDiscountAmount
       },
       memberTypeBreakdown,
       packageBreakdown,
@@ -169,7 +208,8 @@ exports.getReports = async (req, res) => {
         totalDebt
       },
       occupancyBreakdown,
-      cardBasedSummary
+      cardBasedSummary,
+      instructorAttendanceBreakdown
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
