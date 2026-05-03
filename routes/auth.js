@@ -34,20 +34,21 @@ router.post('/login', async (req, res) => {
     console.log('bcrypt.compare result:', valid);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Get permissions for the user's role
-    const permissionsMap = require('../permissions');
-    let permissions = permissionsMap[user.role] || [];
-    // Defensive: parse permissions/assignedSalonIds if stored as JSON strings
+    // Use permissions from DB, not permissions.js
+    let permissions = user.permissions;
+    if (typeof permissions === 'string') {
+      try { permissions = JSON.parse(permissions); } catch { permissions = []; }
+    }
+    if (!Array.isArray(permissions)) permissions = [];
+    console.log('[Auth] DB permissions:', permissions);
     let assignedSalonIds = user.assignedSalonIds;
     if (typeof assignedSalonIds === 'string') {
       try { assignedSalonIds = JSON.parse(assignedSalonIds); } catch { assignedSalonIds = []; }
     }
-    if (typeof permissions === 'string') {
-      try { permissions = JSON.parse(permissions); } catch { permissions = []; }
-    }
     const payload = { id: user.id, role: user.role, assignedSalonIds, permissions };
-    console.log('[DEBUG] JWT payload for sign:', payload);
+    console.log('[Auth] JWT permissions:', permissions);
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' });
+    console.log('[Auth] response permissions:', permissions);
     res.json({
       token,
       role: user.role,
