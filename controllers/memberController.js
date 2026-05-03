@@ -7,11 +7,27 @@ exports.deleteAssignedLessonPackage = async (req, res) => {
   if (!assignment || assignment.memberId != memberId) return res.sendStatus(404);
   const member = await Member.findByPk(memberId);
   if (!member) return res.sendStatus(404);
+  // Debug logs before update
+  const beforeLessons = member.remainingLessons;
+  const beforeDebt = member.totalDebt;
+  const lessonCount = assignment.LessonPackage ? assignment.LessonPackage.lessonCount : null;
+  const price = assignment.LessonPackage ? assignment.LessonPackage.price : null;
+  console.log('[deleteAssignedLessonPackage] memberId:', memberId);
+  console.log('[deleteAssignedLessonPackage] assignmentId:', assignedPackageId);
+  console.log('[deleteAssignedLessonPackage] member.remainingLessons before:', beforeLessons);
+  console.log('[deleteAssignedLessonPackage] member.totalDebt before:', beforeDebt);
+  console.log('[deleteAssignedLessonPackage] assigned package lessonCount:', lessonCount);
+  console.log('[deleteAssignedLessonPackage] assigned package price:', price);
+  if (lessonCount == null) console.log('[deleteAssignedLessonPackage] WARNING: lessonCount is null/undefined');
+  if (price == null) console.log('[deleteAssignedLessonPackage] WARNING: price is null/undefined');
   // Reverse effect
   if (assignment.LessonPackage) {
-    member.remainingLessons = Math.max(0, Number(member.remainingLessons) - Number(assignment.LessonPackage.lessonCount));
-    member.totalDebt = Math.max(0, Number(member.totalDebt) - Number(assignment.LessonPackage.price));
+    member.remainingLessons = Math.max(0, Number(member.remainingLessons) - Number(lessonCount));
+    member.totalDebt = Math.max(0, Number(member.totalDebt) - Number(price));
     await member.save();
+    // Debug logs after update
+    console.log('[deleteAssignedLessonPackage] member.remainingLessons after:', member.remainingLessons);
+    console.log('[deleteAssignedLessonPackage] member.totalDebt after:', member.totalDebt);
   }
   await assignment.destroy();
   res.sendStatus(204);
@@ -162,7 +178,20 @@ exports.deleteMember = async (req, res) => {
     if (!member) {
       return res.status(404).json({ message: 'Member not found' });
     }
+    // Business rule 1: Block if member has debt
+    if (Number(member.totalDebt) > 0) {
+      return res.status(400).json({ message: 'Borcu olan üye pasifleştirilemez. Lütfen önce borcu kapatın.' });
+    }
+    // Business rule 2: If member has remaining lessons, require confirmation
+    const confirmResetLessons = req.body?.confirmResetLessons === true || req.query?.confirmResetLessons === 'true';
+    if (Number(member.remainingLessons) > 0 && !confirmResetLessons) {
+      return res.status(409).json({ message: 'Üyenin kalan dersi var. Pasifleştirilirse kalan dersler sıfırlanacak.' });
+    }
     await sequelize.transaction(async (t) => {
+      // If confirmed, zero out remaining lessons
+      if (Number(member.remainingLessons) > 0) {
+        member.remainingLessons = 0;
+      }
       // Soft delete: set isActive=false, deletedAt=now
       member.isActive = false;
       member.deletedAt = new Date();
