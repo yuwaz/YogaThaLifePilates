@@ -57,20 +57,42 @@ const { Op } = require('sequelize');
 exports.createMember = async (req, res) => {
   try {
     const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
-    if (!name || !phone || !email || !memberTypeId || !assignedSalonIds) {
+    if (!name || !phone || !memberTypeId || !assignedSalonIds) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    if (typeof name !== 'string' || typeof phone !== 'string' || typeof email !== 'string') {
+    if (typeof name !== 'string' || typeof phone !== 'string') {
       return res.status(400).json({ error: 'Invalid field types' });
     }
-    if (!/^\+90[0-9]{10}$/.test(phone)) return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
+    // Email is optional, but if present, must be string
+    if (email !== undefined && email !== null && typeof email !== 'string') {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
+    // Normalize phone: remove spaces, dashes, parentheses
+    let normalizedPhone = phone.replace(/[\s\-()]/g, '');
+    // Keep +90 if present
+    if (!/^\+90[0-9]{10}$/.test(normalizedPhone)) {
+      return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
+    }
     if (!Array.isArray(assignedSalonIds)) return res.status(400).json({ error: 'assignedSalonIds must be an array' });
+    // Prevent duplicate active members by name or phone
+    const duplicate = await Member.findOne({
+      where: {
+        isActive: true,
+        [Op.or]: [
+          { name },
+          { phone: normalizedPhone }
+        ]
+      }
+    });
+    if (duplicate) {
+      return res.status(400).json({ error: 'Aynı isim veya telefon numarasıyla kayıtlı bir üye zaten var.' });
+    }
     // Minimal validation: allow null or integer for assignedInstructorId
     let instructorId = assignedInstructorId;
     if (instructorId !== undefined && instructorId !== null && isNaN(Number(instructorId))) {
       return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
     }
-    const member = await Member.create({ name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
+    const member = await Member.create({ name, phone: normalizedPhone, email, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
   } catch (err) {
     res.status(400).json({ error: err.message });
