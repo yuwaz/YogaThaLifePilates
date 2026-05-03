@@ -92,7 +92,7 @@ exports.createMember = async (req, res) => {
     if (instructorId !== undefined && instructorId !== null && isNaN(Number(instructorId))) {
       return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
     }
-    const member = await Member.create({ name, phone: normalizedPhone, email, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
+      const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
   } catch (err) {
     res.status(400).json({ error: err.message });
