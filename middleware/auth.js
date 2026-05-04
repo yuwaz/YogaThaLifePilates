@@ -75,9 +75,7 @@ function authorizePagePermission(pageKey) {
 function authorizeActionPermission(required) {
   return (req, res, next) => {
     const { role, permissions } = req.user;
-    // Admin always allowed
     if (role === 'admin') return next();
-    // Defensive: ensure permissions is array
     let perms = permissions;
     if (!Array.isArray(perms)) {
       if (typeof perms === 'string') {
@@ -88,12 +86,12 @@ function authorizeActionPermission(required) {
         perms = Array.from(perms);
       }
     }
-    // Allow if user has required action (e.g. 'payments:create')
     if (perms.includes(required)) return next();
-    // Fallback: allow if user has base page permission (e.g. 'payments')
     const baseKey = required.split(':')[0];
+    // Fallback: allow if user has base page permission (e.g. 'payments')
     if (perms.includes(baseKey)) return next();
-    // Forbidden
+    // Special: allow 'settings' for any settings:* action
+    if (baseKey === 'settings' && perms.includes('settings')) return next();
     return res.status(403).json({ error: 'Forbidden: missing permission', perms, required });
   };
 }
