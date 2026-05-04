@@ -18,20 +18,28 @@ module.exports = (sequelize) => {
         is: /^\+90[0-9]{10}$/,
       },
     },
-      email: {
-        type: DataTypes.STRING,
-        allowNull: true,
-        validate: {
-          isEmailOrNull(value) {
-            if (value === null || value === undefined || value === '') return;
-            if (typeof value === 'string' && value.length > 0) {
-              if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
-                throw new Error('Email is not valid');
-              }
+    email: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: false, // allow multiple nulls, do not require unique empty string
+      validate: {
+        isEmailOrNull(value) {
+          if (value === null || value === undefined || value === '') return;
+          if (typeof value === 'string' && value.length > 0) {
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
+              throw new Error('Email is not valid');
             }
           }
-        },
+        }
       },
+      set(value) {
+        if (typeof value === 'string' && value.trim() === '') {
+          this.setDataValue('email', null);
+        } else {
+          this.setDataValue('email', value);
+        }
+      }
+    },
     memberTypeId: {
       type: DataTypes.INTEGER,
       allowNull: false,

@@ -93,7 +93,7 @@ exports.createMember = async (req, res) => {
       return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
     }
     // Email: allow null, trim if present, else null
-    const safeEmail = email && email.trim() !== '' ? email.trim() : null;
+    const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
     const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
   } catch (err) {
@@ -176,7 +176,7 @@ exports.updateMember = async (req, res) => {
     if (phone) member.phone = phone;
     // Email: allow null, trim if present, else null
     if (email !== undefined) {
-      const safeEmail = email && email.trim() !== '' ? email.trim() : null;
+      const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
       member.email = safeEmail;
     }
     if (memberTypeId) member.memberTypeId = memberTypeId;
