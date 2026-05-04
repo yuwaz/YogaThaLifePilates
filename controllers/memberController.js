@@ -92,7 +92,9 @@ exports.createMember = async (req, res) => {
     if (instructorId !== undefined && instructorId !== null && isNaN(Number(instructorId))) {
       return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
     }
-      const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
+    // Email: allow null, trim if present, else null
+    const safeEmail = email && email.trim() !== '' ? email.trim() : null;
+    const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -168,11 +170,15 @@ exports.updateMember = async (req, res) => {
     if (phone && !/^\+90[0-9]{10}$/.test(phone)) return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
     if (name && typeof name !== 'string') return res.status(400).json({ error: 'Invalid name type' });
     if (phone && typeof phone !== 'string') return res.status(400).json({ error: 'Invalid phone type' });
-    if (email && typeof email !== 'string') return res.status(400).json({ error: 'Invalid email type' });
+    if (email !== undefined && email !== null && typeof email !== 'string') return res.status(400).json({ error: 'Invalid email type' });
     if (assignedSalonIds && !Array.isArray(assignedSalonIds)) return res.status(400).json({ error: 'assignedSalonIds must be an array' });
     if (name) member.name = name;
     if (phone) member.phone = phone;
-    if (email) member.email = email;
+    // Email: allow null, trim if present, else null
+    if (email !== undefined) {
+      const safeEmail = email && email.trim() !== '' ? email.trim() : null;
+      member.email = safeEmail;
+    }
     if (memberTypeId) member.memberTypeId = memberTypeId;
     if (assignedSalonIds) member.assignedSalonIds = assignedSalonIds;
     // Minimal validation: allow null or integer for assignedInstructorId
