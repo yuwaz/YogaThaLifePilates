@@ -86,12 +86,9 @@ function authorizeActionPermission(required) {
         perms = Array.from(perms);
       }
     }
-    if (perms.includes(required)) return next();
     const baseKey = required.split(':')[0];
-    // Fallback: allow if user has base page permission (e.g. 'payments')
-    if (perms.includes(baseKey)) return next();
-    // Special: allow 'settings' for any settings:* action
-    if (baseKey === 'settings' && perms.includes('settings')) return next();
+    // Global: allow if user has required action or base page permission
+    if (perms.includes(required) || perms.includes(baseKey)) return next();
     return res.status(403).json({ error: 'Forbidden: missing permission', perms, required });
   };
 }
