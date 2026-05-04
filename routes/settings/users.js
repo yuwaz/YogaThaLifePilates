@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
-router.get('/', authorizeRoles(['admin']), controller.getUsers);
+router.get('/', authorizePagePermission('settings'), controller.getUsers);
 router.get('/:id', authorizeRoles(['admin']), controller.getUser);
 router.post('/', authorizePagePermission('settings'), controller.createUser);
 router.put('/:id', authorizePagePermission('settings'), controller.updateUser);
