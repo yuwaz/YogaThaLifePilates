@@ -1,23 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../../controllers/memberController');
-const { authenticateToken, authorizeRoles } = require('../../middleware/auth');
+const { authenticateToken, authorizeRoles, authorizePagePermission } = require('../../middleware/auth');
 
 router.use(authenticateToken);
 
 // Delete assigned lesson package from member
-router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizeRoles(['admin']), controller.deleteAssignedLessonPackage);
+router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizePagePermission('members'), controller.deleteAssignedLessonPackage);
 // Restore/reactivate member
-router.post('/:id/restore', authorizeRoles(['admin']), controller.restoreMember);
+router.post('/:id/restore', authorizePagePermission('members'), controller.restoreMember);
 router.get('/', authorizeRoles(['admin', 'instructor']), controller.getMembers);
 router.get('/all', authorizeRoles(['admin']), controller.getAllMembers);
 router.get('/:id', authorizeRoles(['admin', 'instructor']), controller.getMember);
-router.post('/', authorizeRoles(['admin']), controller.createMember);
-router.put('/:id', authorizeRoles(['admin']), controller.updateMember);
-router.delete('/:id', authorizeRoles(['admin']), controller.deleteMember);
-
+router.post('/', authorizePagePermission('members'), controller.createMember);
+router.put('/:id', authorizePagePermission('members'), controller.updateMember);
+router.delete('/:id', authorizePagePermission('members'), controller.deleteMember);
 // Add lesson package to member
-router.post('/:id/lessonPackage', authorizeRoles(['admin']), controller.addLessonPackage);
+router.post('/:id/lessonPackage', authorizePagePermission('members'), controller.addLessonPackage);
 // Track payment
 router.post('/:id/payment', authorizeRoles(['admin']), controller.addPayment);
 // Track attendance
