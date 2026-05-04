@@ -42,4 +42,60 @@ function authorizeInstructorSalon(salonIdField = 'salonId') {
   };
 }
 
-module.exports = { authenticateToken, authorizeRoles, authorizeInstructorSalon };
+
+// Page-level permission middleware
+// Usage: authorizePagePermission('payments'), authorizePagePermission('members'), etc.
+function authorizePagePermission(pageKey) {
+  return (req, res, next) => {
+    const { role, permissions } = req.user;
+    // Admin always allowed
+    if (role === 'admin') return next();
+    // Defensive: ensure permissions is array
+    let perms = permissions;
+    if (!Array.isArray(perms)) {
+      if (typeof perms === 'string') {
+        try { perms = JSON.parse(perms); } catch { perms = [perms]; }
+      } else if (!perms) {
+        perms = [];
+      } else {
+        perms = Array.from(perms);
+      }
+    }
+    // Allow if user has pageKey (e.g. 'payments')
+    if (perms.includes(pageKey)) return next();
+    // Allow if user has any permission starting with pageKey + ':'
+    if (perms.some(p => typeof p === 'string' && p.startsWith(pageKey + ':'))) return next();
+    // Forbidden
+    return res.status(403).json({ error: 'Forbidden: missing permission', perms, required: pageKey });
+  };
+}
+
+// Action-level permission middleware with fallback to page-level
+// Usage: authorizeActionPermission('payments:create'), etc.
+function authorizeActionPermission(required) {
+  return (req, res, next) => {
+    const { role, permissions } = req.user;
+    // Admin always allowed
+    if (role === 'admin') return next();
+    // Defensive: ensure permissions is array
+    let perms = permissions;
+    if (!Array.isArray(perms)) {
+      if (typeof perms === 'string') {
+        try { perms = JSON.parse(perms); } catch { perms = [perms]; }
+      } else if (!perms) {
+        perms = [];
+      } else {
+        perms = Array.from(perms);
+      }
+    }
+    // Allow if user has required action (e.g. 'payments:create')
+    if (perms.includes(required)) return next();
+    // Fallback: allow if user has base page permission (e.g. 'payments')
+    const baseKey = required.split(':')[0];
+    if (perms.includes(baseKey)) return next();
+    // Forbidden
+    return res.status(403).json({ error: 'Forbidden: missing permission', perms, required });
+  };
+}
+
+module.exports = { authenticateToken, authorizeRoles, authorizeInstructorSalon, authorizePagePermission, authorizeActionPermission };
