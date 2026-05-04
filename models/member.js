@@ -20,17 +20,12 @@ module.exports = (sequelize) => {
     },
     email: {
       type: DataTypes.STRING,
-      allowNull: true,
-      unique: false, // allow multiple nulls, do not require unique empty string
+      allowNull: true, // email is optional
+      unique: false, // allow multiple nulls
       validate: {
-        isEmailOrNull(value) {
-          if (value === null || value === undefined || value === '') return;
-          if (typeof value === 'string' && value.length > 0) {
-            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
-              throw new Error('Email is not valid');
-            }
-          }
-        }
+        isEmail: {
+          msg: 'Invalid email format',
+        },
       },
       set(value) {
         if (typeof value === 'string' && value.trim() === '') {
