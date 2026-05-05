@@ -96,8 +96,20 @@ exports.createMember = async (req, res) => {
     const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
     const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+  } catch (error) {
+    console.error('createMember error name:', error.name);
+    console.error('createMember errors:', error.errors?.map(e => ({
+      message: e.message,
+      path: e.path,
+      value: e.value,
+      validatorKey: e.validatorKey
+    })));
+    res.status(400).json({ error: error.message, details: error.errors?.map(e => ({
+      message: e.message,
+      path: e.path,
+      value: e.value,
+      validatorKey: e.validatorKey
+    })) });
   }
 };
 
