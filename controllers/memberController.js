@@ -97,6 +97,14 @@ exports.createMember = async (req, res) => {
     const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
     res.status(201).json(member);
   } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      const field = error.errors?.[0]?.path;
+      if (field === 'phone') {
+        return res.status(400).json({ error: 'Bu telefon numarası zaten kayıtlı' });
+      } else if (field === 'email') {
+        return res.status(400).json({ error: 'Bu email zaten kayıtlı' });
+      }
+    }
     console.error('createMember error name:', error.name);
     console.error('createMember errors:', error.errors?.map(e => ({
       message: e.message,
