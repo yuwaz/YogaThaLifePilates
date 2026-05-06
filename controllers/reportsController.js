@@ -46,26 +46,51 @@ exports.getReports = async (req, res) => {
     const receivedPayments = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const pendingPayments = members.reduce((sum, m) => sum + Number(m.totalDebt || 0), 0);
     const totalDebt = members.reduce((sum, m) => sum + Number(m.totalDebt || 0), 0);
-    // Package sales (approximate by lesson packages assigned to members)
-    const lessonPackages = await LessonPackage.findAll();
-    // Assume each member has a lessonPackageId and lessonCount field
+    // --- Sold Package Revenue Calculation ---
+    const { MemberLessonPackage } = require('../models');
+    let soldPackageRevenue = 0;
     let soldPackageCount = 0, soldLessonCount = 0, soldLessonHours = 0, packageBreakdown = [];
+    // Build filter for MemberLessonPackage
+    let packageWhere = {};
+    if (memberIds.length) packageWhere.memberId = { [Op.in]: memberIds };
+    if (startDate || endDate) packageWhere.assignedAt = dateFilter;
+    const assignments = await MemberLessonPackage.findAll({ where: packageWhere });
+    // Fetch all lesson packages for fallback price
+    const lessonPackages = await LessonPackage.findAll();
+    const lessonPackageMap = {};
+    lessonPackages.forEach(lp => { lessonPackageMap[lp.id] = lp; });
+    // For breakdown
+    const packageIdToAssignments = {};
+    assignments.forEach(a => {
+      if (!packageIdToAssignments[a.lessonPackageId]) packageIdToAssignments[a.lessonPackageId] = [];
+      packageIdToAssignments[a.lessonPackageId].push(a);
+    });
+    // Calculate soldPackageRevenue and breakdown
     for (const lp of lessonPackages) {
-      const assignedMembers = members.filter(m => m.lessonPackageId === lp.id);
-      const lessonCount = assignedMembers.reduce((sum, m) => sum + (m.lessonCount || 0), 0);
-      const revenue = assignedMembers.length * Number(lp.price || 0);
-      soldPackageCount += assignedMembers.length;
+      const assigned = packageIdToAssignments[lp.id] || [];
+      let packageRevenue = 0;
+      let lessonCount = 0;
+      assigned.forEach(a => {
+        let price = a.finalPrice != null ? a.finalPrice : (a.originalPrice != null ? a.originalPrice : Number(lp.price || 0));
+        packageRevenue += Number(price);
+        // lessonCount fallback: use lp.lessonCount if available
+        lessonCount += lp.lessonCount || 0;
+      });
+      soldPackageRevenue += packageRevenue;
+      soldPackageCount += assigned.length;
       soldLessonCount += lessonCount;
       soldLessonHours += lessonCount; // 1 hour per lesson
       packageBreakdown.push({
         lessonPackageId: lp.id,
         lessonPackageName: lp.name,
-        packageCount: assignedMembers.length,
+        packageCount: assigned.length,
         lessonCount,
         lessonHours: lessonCount,
-        revenue
+        revenue: packageRevenue
       });
     }
+    // [Reports] soldPackageRevenue debug log
+    console.log('[Reports] soldPackageRevenue:', soldPackageRevenue);
     // Card-based attendance revenue summary (safe, will not break reports)
     let totalCardBasedAttendanceCount = 0;
     let totalCardBasedRevenue = 0;
@@ -123,6 +148,8 @@ exports.getReports = async (req, res) => {
       }).filter(row => row.attendanceCount > 0);
       totalCardBasedAttendanceCount = cardBasedSummary.reduce((sum, row) => sum + row.attendanceCount, 0);
       totalCardBasedRevenue = cardBasedSummary.reduce((sum, row) => sum + row.revenue, 0);
+      // [Reports] totalCardBasedRevenue debug log
+      console.log('[Reports] totalCardBasedRevenue:', totalCardBasedRevenue);
     } catch (err) {
       totalCardBasedAttendanceCount = 0;
       totalCardBasedRevenue = 0;
@@ -176,18 +203,17 @@ exports.getReports = async (req, res) => {
       }
     }
     // --- New: Discount metrics ---
-    // MemberLessonPackage: filter by memberId, assignedAt, and (optionally) salon
-    const { MemberLessonPackage } = require('../models');
-    let discountWhere = {};
-    if (memberIds.length) discountWhere.memberId = { [Op.in]: memberIds };
-    if (startDate || endDate) discountWhere.assignedAt = dateFilter;
-    const assignments = await MemberLessonPackage.findAll({ where: discountWhere });
+    // Use same assignments as above for discount calculation
     let totalDiscountAmount = 0;
     for (const a of assignments) {
       const discount = (a.originalPrice || 0) - (a.finalPrice || 0);
       if (discount > 0) totalDiscountAmount += discount;
     }
     // Response
+    // --- Total Revenue Calculation ---
+    const totalRevenue = soldPackageRevenue + totalCardBasedRevenue;
+    // [Reports] totalRevenue debug log
+    console.log('[Reports] totalRevenue:', totalRevenue);
     res.json({
       summary: {
         memberCount: members.length,
@@ -203,7 +229,9 @@ exports.getReports = async (req, res) => {
         totalCardBasedAttendanceCount,
         totalCardBasedRevenue,
         totalAttendanceCount,
-        totalDiscountAmount
+        totalDiscountAmount,
+        soldPackageRevenue, // Satılan Paket Tutarı
+        totalRevenue // Toplam Ciro
       },
       memberTypeBreakdown,
       packageBreakdown,
