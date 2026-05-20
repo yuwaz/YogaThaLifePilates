@@ -11,6 +11,7 @@ const Attendance = require('./attendance');
 const Payment = require('./payment');
 const PaymentMethod = require('./paymentMethod');
 const MemberLessonPackage = require('./memberLessonPackage');
+const Expense = require('./expense');
 
 const dbPath = path.resolve('/var/www/yogatha-backend/database.sqlite');
 console.log('USING DB:', dbPath);
@@ -33,6 +34,7 @@ const models = {
   Payment: Payment(sequelize),
   PaymentMethod: PaymentMethod(sequelize),
   MemberLessonPackage: MemberLessonPackage(sequelize),
+  Expense: Expense(sequelize),
 };
 // MemberLessonPackage associations
 models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
@@ -56,6 +58,12 @@ models.Attendance.belongsTo(models.Salon, { foreignKey: 'salonId' });
 
 models.Payment.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Payment.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });
+
+models.Expense.belongsTo(models.Salon, { foreignKey: 'salonId' });
+models.Salon.hasMany(models.Expense, { foreignKey: 'salonId' });
+
+models.Expense.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });
+models.PaymentMethod.hasMany(models.Expense, { foreignKey: 'paymentMethodId' });
 
 // User <-> Salon: assignedSalonIds is an array of salon IDs (custom logic in app)
 // Member <-> Salon: assignedSalonIds is an array of salon IDs (custom logic in app)

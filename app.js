@@ -15,6 +15,7 @@ const reservationsRoutes = require('./routes/settings/reservations');
 const paymentsRoutes = require('./routes/settings/payments');
 const attendancesRoutes = require('./routes/settings/attendances');
 const reportsRoutes = require('./routes/settings/reports');
+const expensesRoutes = require('./routes/settings/expenses');
 
 const app = express();
 // Apply CORS globally before all routes
@@ -42,6 +43,7 @@ app.use('/settings/members', membersRoutes);
 app.use('/settings/reservations', reservationsRoutes);
 app.use('/settings/payments', paymentsRoutes);
 app.use('/settings/attendances', attendancesRoutes);
+app.use('/settings/expenses', expensesRoutes);
 
 app.use('/settings/memberTypes', memberTypesRoutes);
 app.use('/settings/paymentMethods', paymentMethodsRoutes);
