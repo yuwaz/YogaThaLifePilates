@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance } = require('../models');
+const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense } = require('../models');
 
 exports.getReports = async (req, res) => {
   try {
@@ -157,6 +157,15 @@ exports.getReports = async (req, res) => {
       totalAttendanceCount = 0;
       instructorAttendanceBreakdown = [];
     }
+    const cardBasedRevenue = totalCardBasedRevenue;
+    const cardBasedRevenueByType = cardBasedSummary.map(row => ({
+      memberTypeId: row.memberTypeId,
+      name: row.memberTypeName,
+      count: row.attendanceCount,
+      revenue: row.revenue
+    }));
+    console.log('[Reports] cardBasedRevenue:', cardBasedRevenue);
+    console.log('[Reports] cardBasedRevenueByType:', cardBasedRevenueByType);
     // Occupancy
     const reservationWhere = {
       date: dateFilter,
@@ -209,11 +218,22 @@ exports.getReports = async (req, res) => {
       const discount = (a.originalPrice || 0) - (a.finalPrice || 0);
       if (discount > 0) totalDiscountAmount += discount;
     }
+    // Expenses total in selected range/salon
+    const expenseWhere = {};
+    if (startDate || endDate) expenseWhere.date = dateFilter;
+    if (salonId !== undefined && salonId !== null) expenseWhere.salonId = Number(salonId);
+    const expenses = await Expense.findAll({ where: expenseWhere });
+    const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
     // Response
-    // --- Total Revenue Calculation ---
+    // --- Total Revenue/Income/Profit Calculation ---
     const totalRevenue = soldPackageRevenue + totalCardBasedRevenue;
+    const totalIncome = soldPackageRevenue + cardBasedRevenue;
+    const netProfit = totalIncome - totalExpenses;
     // [Reports] totalRevenue debug log
     console.log('[Reports] totalRevenue:', totalRevenue);
+    console.log('[Reports] totalIncome:', totalIncome);
+    console.log('[Reports] totalExpenses:', totalExpenses);
+    console.log('[Reports] netProfit:', netProfit);
     res.json({
       summary: {
         memberCount: members.length,
@@ -228,10 +248,14 @@ exports.getReports = async (req, res) => {
         occupancyRate,
         totalCardBasedAttendanceCount,
         totalCardBasedRevenue,
+        cardBasedRevenue,
         totalAttendanceCount,
         totalDiscountAmount,
         soldPackageRevenue, // Satılan Paket Tutarı
-        totalRevenue // Toplam Ciro
+        totalRevenue, // Toplam Ciro
+        totalIncome,
+        totalExpenses,
+        netProfit
       },
       memberTypeBreakdown,
       packageBreakdown,
@@ -242,6 +266,7 @@ exports.getReports = async (req, res) => {
       },
       occupancyBreakdown,
       cardBasedSummary,
+      cardBasedRevenueByType,
       instructorAttendanceBreakdown
     });
   } catch (err) {
