@@ -47,7 +47,7 @@ router.post('/login', async (req, res) => {
     }
     const payload = { id: user.id, role: user.role, assignedSalonIds, permissions };
     console.log('[Auth] JWT permissions:', permissions);
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
     console.log('[Auth] response permissions:', permissions);
     res.json({
       token,
