@@ -16,15 +16,22 @@ exports.getReports = async (req, res) => {
         return res.status(400).json({ error: 'Geçersiz salon filtresi.' });
       }
       salonIds = [salonIdNum];
-      // Fetch all active members, then filter in JS
-      members = await Member.findAll({ where: { isActive: true } });
+      // Fetch all members (active + inactive), then filter in JS for historical reporting
+      members = await Member.findAll();
       members = members.filter(m => Array.isArray(m.assignedSalonIds) && m.assignedSalonIds.includes(salonIdNum));
     } else {
-      // No salon filter, use all active members
-      members = await Member.findAll({ where: { isActive: true } });
+      // No salon filter, use all members for historical reporting
+      members = await Member.findAll();
       const salons = await Salon.findAll({ attributes: ['id'] });
       salonIds = salons.map(s => s.id);
     }
+    const activeMemberCount = members.filter(m => m.isActive === true).length;
+    const inactiveMemberCount = members.length - activeMemberCount;
+    console.log('[Reports] members included count:', members.length);
+    console.log('[Reports] active/inactive included for historical report:', {
+      active: activeMemberCount,
+      inactive: inactiveMemberCount
+    });
     const memberIds = members.map(m => m.id);
     // MemberType breakdown
     const memberTypes = await MemberType.findAll();
