@@ -15,6 +15,9 @@ exports.updateReservation = async (req, res) => {
     if (isNaN(memberId) || isNaN(equipmentId) || isNaN(salonId)) {
       return res.status(400).json({ error: 'Invalid field types' });
     }
+    if (!hasAllowedStartMinute(time)) {
+      return res.status(400).json({ error: 'Invalid time. Allowed start minutes are 00, 15, 30, 45' });
+    }
     if (!reservation) return res.sendStatus(404);
 
     // If single reservation and repeatWeekly === true, convert to weekly recurring
@@ -45,12 +48,12 @@ exports.updateReservation = async (req, res) => {
       // Check for conflicts for all future dates
       for (const d of reservationDates) {
         const dStr = d.toISOString().slice(0, 10);
-        const slotAvailable = await Reservation.count({ where: { equipmentId, date: dStr, time } }) === 0;
-        if (!slotAvailable) {
+        const equipmentOverlap = await hasEquipmentOverlap(equipmentId, dStr, time);
+        if (equipmentOverlap) {
           return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
         }
-        const memberDouble = await Reservation.count({ where: { memberId, date: dStr, time } });
-        if (memberDouble > 0) {
+        const memberOverlap = await hasMemberOverlap(memberId, dStr, time);
+        if (memberOverlap) {
           return res.status(400).json({ error: `Member already has a reservation at this time for ${dStr} ${time}` });
         }
       }
@@ -100,26 +103,11 @@ exports.updateReservation = async (req, res) => {
 
     // Default: update only selected reservation
     if (!updateScope || updateScope === 'single' || !reservation.recurrenceGroupId) {
-      // Check slot availability (excluding current reservation)
-      const slotConflict = await Reservation.count({
-        where: {
-          equipmentId,
-          date,
-          time,
-          id: { $ne: reservation.id }
-        }
-      });
-      if (slotConflict > 0) return res.status(400).json({ error: 'Slot not available' });
-      // Prevent double booking for member at same time (excluding current reservation)
-      const memberDouble = await Reservation.count({
-        where: {
-          memberId,
-          date,
-          time,
-          id: { $ne: reservation.id }
-        }
-      });
-      if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
+      // Check interval overlap (excluding current reservation)
+      const equipmentOverlap = await hasEquipmentOverlap(equipmentId, date, time, { excludeReservationId: reservation.id });
+      if (equipmentOverlap) return res.status(400).json({ error: 'Slot not available' });
+      const memberOverlap = await hasMemberOverlap(memberId, date, time, { excludeReservationId: reservation.id });
+      if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
       // Update reservation
       reservation.memberId = memberId;
       reservation.equipmentId = equipmentId;
@@ -146,21 +134,45 @@ exports.updateReservation = async (req, res) => {
     const { Op } = require('sequelize');
     const selectedDate = new Date(reservation.date);
     const dateStr = selectedDate.toISOString().split('T')[0];
-    // Update all future reservations (including selected)
-    await Reservation.update(
-      {
-        memberId,
-        equipmentId,
-        salonId,
-        time
+    const targetReservations = await Reservation.findAll({
+      where: {
+        recurrenceGroupId: reservation.recurrenceGroupId,
+        date: { [Op.gte]: dateStr }
       },
-      {
-        where: {
-          recurrenceGroupId: reservation.recurrenceGroupId,
-          date: { [Op.gte]: dateStr }
+      attributes: ['id', 'date']
+    });
+
+    for (const target of targetReservations) {
+      const equipmentOverlap = await hasEquipmentOverlap(equipmentId, target.date, time, {
+        excludeRecurrenceGroupId: reservation.recurrenceGroupId
+      });
+      if (equipmentOverlap) return res.status(400).json({ error: 'Slot not available' });
+
+      const memberOverlap = await hasMemberOverlap(memberId, target.date, time, {
+        excludeRecurrenceGroupId: reservation.recurrenceGroupId
+      });
+      if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
+    }
+
+    // Update all future reservations (including selected)
+    const { sequelize } = require('../models');
+    await sequelize.transaction(async (t) => {
+      await Reservation.update(
+        {
+          memberId,
+          equipmentId,
+          salonId,
+          time
+        },
+        {
+          where: {
+            recurrenceGroupId: reservation.recurrenceGroupId,
+            date: { [Op.gte]: dateStr }
+          },
+          transaction: t
         }
-      }
-    );
+      );
+    });
     // Return all updated reservations in the group (future)
     const updated = await Reservation.findAll({
       where: {
@@ -183,6 +195,88 @@ exports.updateReservation = async (req, res) => {
 };
 const { Reservation, Equipment, Salon, Member, MemberType } = require('../models');
 const { Op } = require('sequelize');
+
+const FIXED_DURATION_MINUTES = 45;
+const ALLOWED_START_MINUTES = new Set([0, 15, 30, 45]);
+
+function parseTimeToMinutes(timeValue) {
+  if (typeof timeValue !== 'string') return null;
+  const parts = timeValue.trim().split(':');
+  if (parts.length < 2) return null;
+
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1]);
+  const seconds = parts.length >= 3 ? Number(parts[2]) : 0;
+
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || !Number.isInteger(seconds)) return null;
+  if (hours < 0 || hours > 23) return null;
+  if (minutes < 0 || minutes > 59) return null;
+  if (seconds < 0 || seconds > 59) return null;
+
+  return (hours * 60) + minutes;
+}
+
+function hasAllowedStartMinute(timeValue) {
+  const minutes = parseTimeToMinutes(timeValue);
+  if (minutes === null) return false;
+  return ALLOWED_START_MINUTES.has(minutes % 60);
+}
+
+function intervalsOverlap(existingStart, existingEnd, candidateStart, candidateEnd) {
+  return existingStart < candidateEnd && existingEnd > candidateStart;
+}
+
+async function hasEquipmentOverlap(equipmentId, date, time, options = {}) {
+  const { excludeReservationId, excludeRecurrenceGroupId } = options;
+  const where = { equipmentId, date };
+  if (excludeReservationId !== undefined && excludeReservationId !== null) {
+    where.id = { [Op.ne]: excludeReservationId };
+  }
+  if (excludeRecurrenceGroupId) {
+    where.recurrenceGroupId = { [Op.ne]: excludeRecurrenceGroupId };
+  }
+
+  const candidateStart = parseTimeToMinutes(time);
+  if (candidateStart === null) return true;
+  const candidateEnd = candidateStart + FIXED_DURATION_MINUTES;
+
+  const existingReservations = await Reservation.findAll({ where, attributes: ['id', 'time'] });
+  for (const existing of existingReservations) {
+    const existingStart = parseTimeToMinutes(existing.time);
+    if (existingStart === null) return true;
+    const existingEnd = existingStart + FIXED_DURATION_MINUTES;
+    if (intervalsOverlap(existingStart, existingEnd, candidateStart, candidateEnd)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function hasMemberOverlap(memberId, date, time, options = {}) {
+  const { excludeReservationId, excludeRecurrenceGroupId } = options;
+  const where = { memberId, date };
+  if (excludeReservationId !== undefined && excludeReservationId !== null) {
+    where.id = { [Op.ne]: excludeReservationId };
+  }
+  if (excludeRecurrenceGroupId) {
+    where.recurrenceGroupId = { [Op.ne]: excludeRecurrenceGroupId };
+  }
+
+  const candidateStart = parseTimeToMinutes(time);
+  if (candidateStart === null) return true;
+  const candidateEnd = candidateStart + FIXED_DURATION_MINUTES;
+
+  const existingReservations = await Reservation.findAll({ where, attributes: ['id', 'time'] });
+  for (const existing of existingReservations) {
+    const existingStart = parseTimeToMinutes(existing.time);
+    if (existingStart === null) return true;
+    const existingEnd = existingStart + FIXED_DURATION_MINUTES;
+    if (intervalsOverlap(existingStart, existingEnd, candidateStart, candidateEnd)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // Helper to format enriched reservation
 function formatReservation(reservation) {
@@ -208,8 +302,8 @@ function formatReservation(reservation) {
 
 // Helper: check slot availability
 async function isSlotAvailable(equipmentId, date, time) {
-  const count = await Reservation.count({ where: { equipmentId, date, time } });
-  return count === 0;
+  const overlap = await hasEquipmentOverlap(equipmentId, date, time);
+  return !overlap;
 }
 
 exports.createReservation = async (req, res) => {
@@ -220,6 +314,9 @@ exports.createReservation = async (req, res) => {
     }
     if (isNaN(memberId) || isNaN(equipmentId) || isNaN(salonId)) {
       return res.status(400).json({ error: 'Invalid field types' });
+    }
+    if (!hasAllowedStartMinute(time)) {
+      return res.status(400).json({ error: 'Invalid time. Allowed start minutes are 00, 15, 30, 45' });
     }
     // Validate equipment exists and belongs to salon
     const equipment = await Equipment.findByPk(equipmentId);
@@ -237,9 +334,9 @@ exports.createReservation = async (req, res) => {
       // Check slot availability (prevent double booking)
       const available = await isSlotAvailable(equipmentId, date, time);
       if (!available) return res.status(400).json({ error: 'Slot not available' });
-      // Prevent double booking for member at same time
-      const memberDouble = await Reservation.count({ where: { memberId, date, time } });
-      if (memberDouble > 0) return res.status(400).json({ error: 'Member already has a reservation at this time' });
+      // Prevent member interval overlap on same date
+      const memberOverlap = await hasMemberOverlap(memberId, date, time);
+      if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
       // Create reservation
       const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
       // Fetch enriched reservation for response
@@ -279,8 +376,8 @@ exports.createReservation = async (req, res) => {
       if (!slotAvailable) {
         return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
       }
-      const memberDouble = await Reservation.count({ where: { memberId, date: dStr, time } });
-      if (memberDouble > 0) {
+      const memberOverlap = await hasMemberOverlap(memberId, dStr, time);
+      if (memberOverlap) {
         return res.status(400).json({ error: `Member already has a reservation at this time for ${dStr} ${time}` });
       }
     }
