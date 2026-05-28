@@ -54,6 +54,35 @@ exports.restoreMember = async (req, res) => {
 const { Member, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation } = require('../models');
 const { Op } = require('sequelize');
 
+const measurementFields = ['height', 'weight', 'waist', 'hip', 'chest', 'arm', 'leg', 'shoulder', 'bodyFatPercentage'];
+
+function normalizeNullableDecimalField(value) {
+  if (value === undefined) {
+    return { provided: false };
+  }
+  if (value === null) {
+    return { provided: true, value: null };
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      return { provided: true, value: null };
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      return { provided: true, error: 'Measurement fields must be numeric, null, or empty' };
+    }
+    return { provided: true, value: parsed };
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return { provided: true, error: 'Measurement fields must be numeric, null, or empty' };
+    }
+    return { provided: true, value };
+  }
+  return { provided: true, error: 'Measurement fields must be numeric, null, or empty' };
+}
+
 exports.createMember = async (req, res) => {
   try {
     const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
@@ -94,7 +123,17 @@ exports.createMember = async (req, res) => {
     }
     // Email: allow null, trim if present, else null
     const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
-    const member = await Member.create({ name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId });
+    const memberPayload = { name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId };
+    for (const field of measurementFields) {
+      const normalized = normalizeNullableDecimalField(req.body[field]);
+      if (normalized.error) {
+        return res.status(400).json({ error: normalized.error });
+      }
+      if (normalized.provided) {
+        memberPayload[field] = normalized.value;
+      }
+    }
+    const member = await Member.create(memberPayload);
     res.status(201).json(member);
   } catch (error) {
     if (error.name === 'SequelizeUniqueConstraintError') {
@@ -207,6 +246,15 @@ exports.updateMember = async (req, res) => {
         return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
       }
       member.assignedInstructorId = assignedInstructorId;
+    }
+    for (const field of measurementFields) {
+      const normalized = normalizeNullableDecimalField(req.body[field]);
+      if (normalized.error) {
+        return res.status(400).json({ error: normalized.error });
+      }
+      if (normalized.provided) {
+        member[field] = normalized.value;
+      }
     }
     await member.save();
     res.json(member);

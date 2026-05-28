@@ -1,4 +1,5 @@
 const { Sequelize } = require('sequelize');
+const fs = require('fs');
 const path = require('path');
 const User = require('./user');
 const Salon = require('./salon');
@@ -13,7 +14,18 @@ const PaymentMethod = require('./paymentMethod');
 const MemberLessonPackage = require('./memberLessonPackage');
 const Expense = require('./expense');
 
-const dbPath = path.resolve('/var/www/yogatha-backend/database.sqlite');
+const preferredDbPath = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.resolve('/var/www/yogatha-backend/database.sqlite');
+const fallbackDbPath = path.resolve(__dirname, '..', 'database.sqlite');
+let dbPath = preferredDbPath;
+
+try {
+  fs.mkdirSync(path.dirname(preferredDbPath), { recursive: true });
+} catch (err) {
+  dbPath = fallbackDbPath;
+}
+
 console.log('USING DB:', dbPath);
 const sequelize = new Sequelize({
   dialect: 'sqlite',

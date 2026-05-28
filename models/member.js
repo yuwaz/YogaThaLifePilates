@@ -50,6 +50,51 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       defaultValue: 0,
     },
+    height: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    weight: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    waist: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    hip: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    chest: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    arm: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    leg: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    shoulder: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
+    bodyFatPercentage: {
+      type: DataTypes.DECIMAL(10,2),
+      allowNull: true,
+      defaultValue: null,
+    },
     assignedSalonIds: {
       type: DataTypes.JSON,
       allowNull: false,
