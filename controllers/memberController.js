@@ -56,6 +56,10 @@ const { Op } = require('sequelize');
 
 const measurementFields = ['height', 'weight', 'waist', 'hip', 'chest', 'arm', 'leg', 'shoulder', 'bodyFatPercentage'];
 
+function pickMeasurementFields(source) {
+  return Object.fromEntries(measurementFields.map((field) => [field, source?.[field]]));
+}
+
 function normalizeNullableDecimalField(value) {
   if (value === undefined) {
     return { provided: false };
@@ -247,17 +251,24 @@ exports.updateMember = async (req, res) => {
       }
       member.assignedInstructorId = assignedInstructorId;
     }
+    const measurementInput = pickMeasurementFields(req.body);
+    console.log('[MemberUpdate] req.body measurements:', measurementInput);
+    const measurementUpdates = {};
     for (const field of measurementFields) {
       const normalized = normalizeNullableDecimalField(req.body[field]);
       if (normalized.error) {
         return res.status(400).json({ error: normalized.error });
       }
       if (normalized.provided) {
-        member[field] = normalized.value;
+        measurementUpdates[field] = normalized.value;
       }
     }
+    member.set(measurementUpdates);
     await member.save();
-    res.json(member);
+    const savedMember = await Member.findByPk(member.id);
+    if (!savedMember) return res.sendStatus(404);
+    console.log('[MemberUpdate] saved member measurements:', pickMeasurementFields(savedMember.toJSON()));
+    res.json(savedMember);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
