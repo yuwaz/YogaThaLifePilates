@@ -14,6 +14,7 @@ router.get('/all', authorizeRoles(['admin']), controller.getAllMembers);
 router.get('/:id', authorizeRoles(['admin', 'instructor']), controller.getMember);
 router.post('/', authorizePagePermission('members'), controller.createMember);
 router.put('/:id', authorizePagePermission('members'), controller.updateMember);
+router.patch('/:id', authorizePagePermission('members'), controller.updateMember);
 router.delete('/:id', authorizePagePermission('members'), controller.deleteMember);
 // Add lesson package to member
 router.post('/:id/lessonPackage', authorizePagePermission('members'), controller.addLessonPackage);
