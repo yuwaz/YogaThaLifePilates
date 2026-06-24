@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
@@ -11,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 // Apply CORS to all /auth routes (in addition to global)
 router.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -58,6 +59,47 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'username', 'role', 'assignedSalonIds', 'permissions']
+    });
+    if (!user) return res.sendStatus(404);
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.patch('/me/password', authenticateToken, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'Missing required fields: oldPassword, newPassword' });
+    }
+    if (typeof oldPassword !== 'string' || typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'newPassword must be at least 6 characters' });
+    }
+
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.sendStatus(404);
+
+    const validOldPassword = await bcrypt.compare(oldPassword, user.password);
+    if (!validOldPassword) {
+      return res.status(401).json({ error: 'Old password is incorrect' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    return res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 

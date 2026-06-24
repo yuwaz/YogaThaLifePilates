@@ -45,6 +45,14 @@ exports.getUsers = async (req, res) => {
   res.json(users);
 };
 
+exports.getInstructors = async (req, res) => {
+  const instructors = await User.findAll({
+    where: { role: 'instructor' },
+    attributes: ['id', 'username', 'role', 'assignedSalonIds']
+  });
+  res.json(instructors);
+};
+
 exports.getUser = async (req, res) => {
   const user = await User.findByPk(req.params.id);
   if (!user) return res.sendStatus(404);
