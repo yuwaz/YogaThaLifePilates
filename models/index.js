@@ -67,6 +67,10 @@ models.Reservation.belongsTo(models.Salon, { foreignKey: 'salonId' });
 
 models.Attendance.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Attendance.belongsTo(models.Salon, { foreignKey: 'salonId' });
+models.Attendance.belongsTo(models.Reservation, {
+  foreignKey: 'reservationId',
+  constraints: false,
+});
 
 models.Payment.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Payment.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });

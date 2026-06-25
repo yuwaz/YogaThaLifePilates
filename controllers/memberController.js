@@ -401,14 +401,74 @@ exports.addPayment = async (req, res) => {
 };
 
 // Track attendance
+const LOCAL_TIMEZONE = 'Europe/Istanbul';
+
+function toLocalDateString(value) {
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: LOCAL_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(parsedDate);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+}
+
+async function findReservationMatch(memberId, attendanceDate) {
+  const localDate = toLocalDateString(attendanceDate);
+  if (!localDate) {
+    return { kind: 'invalid-date' };
+  }
+
+  const reservations = await Reservation.findAll({
+    where: {
+      memberId,
+      date: localDate,
+    },
+    attributes: ['id'],
+    limit: 2,
+    order: [['id', 'ASC']],
+  });
+
+  if (reservations.length === 0) return { kind: 'none' };
+  if (reservations.length > 1) return { kind: 'multiple' };
+
+  return { kind: 'single', reservationId: reservations[0].id };
+}
+
 exports.addAttendance = async (req, res) => {
   try {
     const { salonId, date } = req.body;
     if (!salonId || !date) return res.status(400).json({ error: 'Missing required fields' });
     const member = await Member.findByPk(req.params.id);
     if (!member) return res.sendStatus(404);
+
+    const reservationMatch = await findReservationMatch(member.id, date);
+    if (reservationMatch.kind === 'invalid-date') {
+      return res.status(400).json({ error: 'Invalid attendance date' });
+    }
+    if (reservationMatch.kind === 'none') {
+      return res.status(400).json({ error: 'Bu üyenin seçilen tarihte rezervasyonu bulunamadı' });
+    }
+    if (reservationMatch.kind === 'multiple') {
+      return res.status(409).json({ error: 'Bu üyenin seçilen tarihte birden fazla rezervasyonu var' });
+    }
+
     if (member.remainingLessons <= 0) return res.status(400).json({ error: 'No remaining lessons' });
-    const attendance = await Attendance.create({ memberId: member.id, salonId, date });
+    const attendance = await Attendance.create({
+      memberId: member.id,
+      salonId,
+      date,
+      reservationId: reservationMatch.reservationId,
+    });
     member.remainingLessons = Number(member.remainingLessons) - 1;
     await member.save();
     res.status(201).json(attendance);

@@ -22,6 +22,13 @@ exports.updateReservation = async (req, res) => {
 
     // If single reservation and repeatWeekly === true, convert to weekly recurring
     if (!reservation.recurrenceGroupId && repeatWeekly === true) {
+      const hasDuplicateSelectedDate = await hasMemberDateReservation(memberId, date, {
+        excludeReservationId: reservation.id,
+      });
+      if (hasDuplicateSelectedDate) {
+        return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
+      }
+
       // Update selected reservation fields
       reservation.memberId = memberId;
       reservation.equipmentId = equipmentId;
@@ -48,6 +55,10 @@ exports.updateReservation = async (req, res) => {
       // Check for conflicts for all future dates
       for (const d of reservationDates) {
         const dStr = d.toISOString().slice(0, 10);
+        const hasDuplicateDate = await hasMemberDateReservation(memberId, dStr);
+        if (hasDuplicateDate) {
+          return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
+        }
         const equipmentOverlap = await hasEquipmentOverlap(equipmentId, dStr, time);
         if (equipmentOverlap) {
           return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
@@ -103,6 +114,13 @@ exports.updateReservation = async (req, res) => {
 
     // Default: update only selected reservation
     if (!updateScope || updateScope === 'single' || !reservation.recurrenceGroupId) {
+      const hasDuplicateDate = await hasMemberDateReservation(memberId, date, {
+        excludeReservationId: reservation.id,
+      });
+      if (hasDuplicateDate) {
+        return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
+      }
+
       // Check interval overlap (excluding current reservation)
       const equipmentOverlap = await hasEquipmentOverlap(equipmentId, date, time, { excludeReservationId: reservation.id });
       if (equipmentOverlap) return res.status(400).json({ error: 'Slot not available' });
@@ -143,6 +161,13 @@ exports.updateReservation = async (req, res) => {
     });
 
     for (const target of targetReservations) {
+      const hasDuplicateDate = await hasMemberDateReservation(memberId, target.date, {
+        excludeRecurrenceGroupId: reservation.recurrenceGroupId,
+      });
+      if (hasDuplicateDate) {
+        return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
+      }
+
       const equipmentOverlap = await hasEquipmentOverlap(equipmentId, target.date, time, {
         excludeRecurrenceGroupId: reservation.recurrenceGroupId
       });
@@ -259,7 +284,10 @@ async function hasMemberOverlap(memberId, date, time, options = {}) {
     where.id = { [Op.ne]: excludeReservationId };
   }
   if (excludeRecurrenceGroupId) {
-    where.recurrenceGroupId = { [Op.ne]: excludeRecurrenceGroupId };
+    where[Op.or] = [
+      { recurrenceGroupId: { [Op.ne]: excludeRecurrenceGroupId } },
+      { recurrenceGroupId: { [Op.is]: null } },
+    ];
   }
 
   const candidateStart = parseTimeToMinutes(time);
@@ -276,6 +304,21 @@ async function hasMemberOverlap(memberId, date, time, options = {}) {
     }
   }
   return false;
+}
+
+async function hasMemberDateReservation(memberId, date, options = {}) {
+  const { excludeReservationId, excludeRecurrenceGroupId } = options;
+  const where = { memberId, date };
+
+  if (excludeReservationId !== undefined && excludeReservationId !== null) {
+    where.id = { [Op.ne]: excludeReservationId };
+  }
+  if (excludeRecurrenceGroupId) {
+    where.recurrenceGroupId = { [Op.ne]: excludeRecurrenceGroupId };
+  }
+
+  const existing = await Reservation.findOne({ where, attributes: ['id'] });
+  return !!existing;
 }
 
 // Helper to format enriched reservation
@@ -331,6 +374,11 @@ exports.createReservation = async (req, res) => {
     // --- Recurring reservation logic ---
     if (!repeatWeekly) {
       // Single reservation (legacy behavior)
+      const hasDuplicateDate = await hasMemberDateReservation(memberId, date);
+      if (hasDuplicateDate) {
+        return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
+      }
+
       // Check slot availability (prevent double booking)
       const available = await isSlotAvailable(equipmentId, date, time);
       if (!available) return res.status(400).json({ error: 'Slot not available' });
@@ -372,6 +420,10 @@ exports.createReservation = async (req, res) => {
     // Check for conflicts for all dates
     for (const d of reservationDates) {
       const dStr = d.toISOString().slice(0, 10);
+      const hasDuplicateDate = await hasMemberDateReservation(memberId, dStr);
+      if (hasDuplicateDate) {
+        return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
+      }
       const slotAvailable = await isSlotAvailable(equipmentId, dStr, time);
       if (!slotAvailable) {
         return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });

@@ -19,6 +19,10 @@ module.exports = (sequelize) => {
       type: DataTypes.DATE,
       allowNull: false,
     },
+    reservationId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   });
   return Attendance;
 };
