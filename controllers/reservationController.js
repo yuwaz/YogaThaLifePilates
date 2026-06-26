@@ -121,14 +121,20 @@ exports.updateReservation = async (req, res) => {
         return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
       }
 
-      // Check interval overlap (excluding current reservation)
-      const equipmentOverlap = await hasEquipmentOverlap(equipmentId, date, time, { excludeReservationId: reservation.id });
-      if (equipmentOverlap) return res.status(400).json({ error: 'Slot not available' });
+      const availableEquipment = await findAvailableEquipment(salonId, date, time, {
+        excludeReservationId: reservation.id,
+        preferredEquipmentId: equipmentId,
+        equipmentType: equipment.type,
+      });
+      if (!availableEquipment) {
+        return res.status(409).json({ error: 'Seçilen saat için uygun ekipman bulunamadı' });
+      }
+
       const memberOverlap = await hasMemberOverlap(memberId, date, time, { excludeReservationId: reservation.id });
       if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
       // Update reservation
       reservation.memberId = memberId;
-      reservation.equipmentId = equipmentId;
+      reservation.equipmentId = availableEquipment.id;
       reservation.salonId = salonId;
       reservation.date = date;
       reservation.time = time;
@@ -319,6 +325,41 @@ async function hasMemberDateReservation(memberId, date, options = {}) {
 
   const existing = await Reservation.findOne({ where, attributes: ['id'] });
   return !!existing;
+}
+
+async function findAvailableEquipment(salonId, date, time, options = {}) {
+  const { excludeReservationId, preferredEquipmentId, equipmentType } = options;
+  const equipments = await Equipment.findAll({
+    where: {
+      salonId: Number(salonId),
+      type: equipmentType,
+    },
+    attributes: ['id'],
+    order: [['id', 'ASC']],
+  });
+
+  if (!equipments.length) return null;
+
+  const prioritized = [];
+  if (preferredEquipmentId !== undefined && preferredEquipmentId !== null) {
+    const preferred = equipments.find((eq) => eq.id === Number(preferredEquipmentId));
+    if (preferred) prioritized.push(preferred);
+  }
+
+  for (const eq of equipments) {
+    if (!prioritized.some((picked) => picked.id === eq.id)) {
+      prioritized.push(eq);
+    }
+  }
+
+  for (const eq of prioritized) {
+    const overlap = await hasEquipmentOverlap(eq.id, date, time, { excludeReservationId });
+    if (!overlap) {
+      return eq;
+    }
+  }
+
+  return null;
 }
 
 // Helper to format enriched reservation
