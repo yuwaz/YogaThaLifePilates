@@ -352,9 +352,41 @@ async function findAvailableEquipment(salonId, date, time, options = {}) {
     }
   }
 
+  const candidateStart = parseTimeToMinutes(time);
+  if (candidateStart === null) return null;
+  const candidateEnd = candidateStart + FIXED_DURATION_MINUTES;
+
+  const candidateIds = prioritized.map((eq) => eq.id);
+  const reservationWhere = {
+    date,
+    salonId: Number(salonId),
+    equipmentId: { [Op.in]: candidateIds },
+  };
+  if (excludeReservationId !== undefined && excludeReservationId !== null) {
+    reservationWhere.id = { [Op.ne]: excludeReservationId };
+  }
+
+  const existingReservations = await Reservation.findAll({
+    where: reservationWhere,
+    attributes: ['id', 'equipmentId', 'time'],
+  });
+
+  const occupiedEquipmentIds = new Set();
+  for (const existing of existingReservations) {
+    const existingStart = parseTimeToMinutes(existing.time);
+    if (existingStart === null) {
+      occupiedEquipmentIds.add(existing.equipmentId);
+      continue;
+    }
+
+    const existingEnd = existingStart + FIXED_DURATION_MINUTES;
+    if (intervalsOverlap(existingStart, existingEnd, candidateStart, candidateEnd)) {
+      occupiedEquipmentIds.add(existing.equipmentId);
+    }
+  }
+
   for (const eq of prioritized) {
-    const overlap = await hasEquipmentOverlap(eq.id, date, time, { excludeReservationId });
-    if (!overlap) {
+    if (!occupiedEquipmentIds.has(eq.id)) {
       return eq;
     }
   }
