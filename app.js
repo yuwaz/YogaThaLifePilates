@@ -61,10 +61,12 @@ app.use((req, res, next) => {
 
 const ensureMemberSoftDeleteColumns = require('./ensureMemberSoftDeleteColumns');
 const ensureAttendanceReservationColumn = require('./ensureAttendanceReservationColumn');
+const ensureAttendanceInstructorColumn = require('./ensureAttendanceInstructorColumn');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureMemberSoftDeleteColumns();
   await ensureAttendanceReservationColumn();
+  await ensureAttendanceInstructorColumn();
   await sequelize.sync();
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));

@@ -64,6 +64,7 @@ exports.getAttendance = async (req, res) => {
 exports.addAttendance = async (req, res) => {
   try {
     const { memberId, salonId, date } = req.body;
+    const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
 
     if (!memberId || !salonId || !date) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -98,6 +99,7 @@ exports.addAttendance = async (req, res) => {
         salonId,
         date,
         reservationId: reservationMatch.reservationId,
+        instructorId,
       });
       return res.status(201).json(attendance);
     } else {
@@ -110,6 +112,7 @@ exports.addAttendance = async (req, res) => {
         salonId,
         date,
         reservationId: reservationMatch.reservationId,
+        instructorId,
       });
       member.remainingLessons = Number(member.remainingLessons) - 1;
       await member.save();

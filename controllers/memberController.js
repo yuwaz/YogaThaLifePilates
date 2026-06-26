@@ -447,6 +447,7 @@ async function findReservationMatch(memberId, attendanceDate) {
 exports.addAttendance = async (req, res) => {
   try {
     const { salonId, date } = req.body;
+    const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
     if (!salonId || !date) return res.status(400).json({ error: 'Missing required fields' });
     const member = await Member.findByPk(req.params.id);
     if (!member) return res.sendStatus(404);
@@ -468,6 +469,7 @@ exports.addAttendance = async (req, res) => {
       salonId,
       date,
       reservationId: reservationMatch.reservationId,
+      instructorId,
     });
     member.remainingLessons = Number(member.remainingLessons) - 1;
     await member.save();

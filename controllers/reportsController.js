@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense } = require('../models');
+const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense, User } = require('../models');
 
 exports.getReports = async (req, res) => {
   try {
@@ -171,6 +171,84 @@ exports.getReports = async (req, res) => {
       count: row.attendanceCount,
       revenue: row.revenue
     }));
+
+    let instructorSessionBreakdown = [];
+    try {
+      const reservationWhereForSessions = {};
+      if (startDate || endDate) reservationWhereForSessions.date = dateFilter;
+      if (salonId !== undefined && salonId !== null) reservationWhereForSessions.salonId = Number(salonId);
+
+      const sessionAttendances = await Attendance.findAll({
+        where: {
+          reservationId: { [Op.not]: null },
+          instructorId: { [Op.not]: null },
+        },
+        include: [{
+          model: Reservation,
+          required: true,
+          attributes: ['id', 'salonId', 'date', 'time'],
+          where: reservationWhereForSessions,
+        }],
+        attributes: ['id', 'instructorId', 'reservationId'],
+      });
+
+      const instructorIds = [...new Set(sessionAttendances.map((a) => Number(a.instructorId)).filter((id) => !Number.isNaN(id)))];
+      const users = instructorIds.length
+        ? await User.findAll({
+            where: { id: { [Op.in]: instructorIds } },
+            attributes: ['id', 'username'],
+          })
+        : [];
+      const instructorNameById = new Map(users.map((u) => [Number(u.id), u.username]));
+
+      const salonsForNames = await Salon.findAll({ attributes: ['id', 'name'] });
+      const salonNameById = new Map(salonsForNames.map((s) => [Number(s.id), s.name]));
+
+      const grouped = new Map();
+      for (const attendance of sessionAttendances) {
+        const reservation = attendance.Reservation;
+        if (!reservation) continue;
+
+        const instructorId = Number(attendance.instructorId);
+        const salonIdNum = Number(reservation.salonId);
+        const aggregateKey = `${instructorId}|${salonIdNum}`;
+        const sessionKey = `${reservation.date}|${reservation.time}`;
+
+        if (!grouped.has(aggregateKey)) {
+          grouped.set(aggregateKey, {
+            instructorId,
+            instructorName: instructorNameById.get(instructorId) || 'Bilinmeyen Eğitmen',
+            salonId: salonIdNum,
+            salonName: salonNameById.get(salonIdNum) || `Salon ID ${salonIdNum}`,
+            participantCount: 0,
+            sessions: new Set(),
+          });
+        }
+
+        const row = grouped.get(aggregateKey);
+        row.participantCount += 1;
+        row.sessions.add(sessionKey);
+      }
+
+      instructorSessionBreakdown = Array.from(grouped.values())
+        .map((row) => ({
+          instructorId: row.instructorId,
+          instructorName: row.instructorName,
+          salonId: row.salonId,
+          salonName: row.salonName,
+          sessionCount: row.sessions.size,
+          participantCount: row.participantCount,
+        }))
+        .sort((a, b) => {
+          if (a.instructorName === b.instructorName) {
+            return a.salonName.localeCompare(b.salonName, 'tr');
+          }
+          return a.instructorName.localeCompare(b.instructorName, 'tr');
+        });
+    } catch (err) {
+      instructorSessionBreakdown = [];
+    }
+
     console.log('[Reports] cardBasedRevenue:', cardBasedRevenue);
     console.log('[Reports] cardBasedRevenueByType:', cardBasedRevenueByType);
     // Occupancy
@@ -274,7 +352,8 @@ exports.getReports = async (req, res) => {
       occupancyBreakdown,
       cardBasedSummary,
       cardBasedRevenueByType,
-      instructorAttendanceBreakdown
+      instructorAttendanceBreakdown,
+      instructorSessionBreakdown
     });
   } catch (err) {
     res.status(400).json({ error: err.message });

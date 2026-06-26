@@ -23,6 +23,10 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    instructorId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   });
   return Attendance;
 };
