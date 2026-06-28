@@ -188,6 +188,10 @@ exports.getReports = async (req, res) => {
           required: true,
           attributes: ['id', 'salonId', 'date', 'time'],
           where: reservationWhereForSessions,
+        }, {
+          model: Member,
+          required: false,
+          attributes: ['id', 'name'],
         }],
         attributes: ['id', 'instructorId', 'reservationId'],
       });
@@ -207,6 +211,7 @@ exports.getReports = async (req, res) => {
       const grouped = new Map();
       for (const attendance of sessionAttendances) {
         const reservation = attendance.Reservation;
+        const member = attendance.Member;
         if (!reservation) continue;
 
         const instructorId = Number(attendance.instructorId);
@@ -221,13 +226,40 @@ exports.getReports = async (req, res) => {
             salonId: salonIdNum,
             salonName: salonNameById.get(salonIdNum) || `Salon ID ${salonIdNum}`,
             participantCount: 0,
-            sessions: new Set(),
+            sessions: new Map(),
           });
         }
 
         const row = grouped.get(aggregateKey);
         row.participantCount += 1;
-        row.sessions.add(sessionKey);
+
+        if (!row.sessions.has(sessionKey)) {
+          row.sessions.set(sessionKey, {
+            date: reservation.date,
+            time: reservation.time,
+            salonId: salonIdNum,
+            salonName: row.salonName,
+            participantCount: 0,
+            members: [],
+            memberIds: new Set(),
+          });
+        }
+
+        const session = row.sessions.get(sessionKey);
+        const memberId = member ? Number(member.id) : null;
+        const memberName = member && member.name ? member.name : '-';
+        if (memberId === null || Number.isNaN(memberId)) {
+          session.members.push({
+            memberId: null,
+            memberName,
+          });
+        } else if (!session.memberIds.has(String(memberId))) {
+          session.memberIds.add(String(memberId));
+          session.members.push({
+            memberId,
+            memberName,
+          });
+        }
       }
 
       instructorSessionBreakdown = Array.from(grouped.values())
@@ -238,6 +270,21 @@ exports.getReports = async (req, res) => {
           salonName: row.salonName,
           sessionCount: row.sessions.size,
           participantCount: row.participantCount,
+          sessions: Array.from(row.sessions.values())
+            .map((session) => ({
+              date: session.date,
+              time: session.time,
+              salonId: session.salonId,
+              salonName: session.salonName,
+              participantCount: session.members.length,
+              members: session.members,
+            }))
+            .sort((a, b) => {
+              if (a.date === b.date) {
+                return String(a.time).localeCompare(String(b.time), 'tr');
+              }
+              return String(a.date).localeCompare(String(b.date), 'tr');
+            }),
         }))
         .sort((a, b) => {
           if (a.instructorName === b.instructorName) {
