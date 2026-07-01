@@ -224,7 +224,7 @@ exports.updateReservation = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
-const { Reservation, Equipment, Salon, Member, MemberType } = require('../models');
+const { Reservation, Equipment, Salon, Member, MemberType, Attendance } = require('../models');
 const { Op } = require('sequelize');
 
 const FIXED_DURATION_MINUTES = 45;
@@ -620,6 +620,12 @@ exports.deleteReservation = async (req, res) => {
     });
     return res.sendStatus(204);
   }
+
+  const linkedAttendance = await Attendance.findOne({ where: { reservationId: reservation.id } });
+  if (linkedAttendance) {
+    return res.status(409).json({ error: 'Bu rezervasyon için yoklama alınmıştır. Önce yoklamayı siliniz.' });
+  }
+
   // Default: delete only this reservation
   await reservation.destroy();
   res.sendStatus(204);
