@@ -612,6 +612,26 @@ exports.deleteReservation = async (req, res) => {
     console.log('[DELETE QUERY]');
     console.log('group:', reservation.recurrenceGroupId);
     console.log('date >=', dateStr);
+
+    const reservationsToDelete = await Reservation.findAll({
+      where: {
+        recurrenceGroupId: reservation.recurrenceGroupId,
+        date: { [Op.gte]: dateStr }
+      },
+      attributes: ['id']
+    });
+    const reservationIdsToDelete = reservationsToDelete.map((row) => row.id);
+    if (reservationIdsToDelete.length > 0) {
+      const linkedAttendance = await Attendance.findOne({
+        where: {
+          reservationId: { [Op.in]: reservationIdsToDelete }
+        }
+      });
+      if (linkedAttendance) {
+        return res.status(409).json({ error: 'Silinecek rezervasyonlardan biri veya daha fazlası için yoklama alınmıştır. Önce ilgili yoklamaları siliniz.' });
+      }
+    }
+
     await Reservation.destroy({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
