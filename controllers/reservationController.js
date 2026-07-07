@@ -544,6 +544,12 @@ exports.createReservation = async (req, res) => {
 
 exports.getReservations = async (req, res) => {
   const onlyMyMembers = req.query.onlyMyMembers === 'true';
+  const { startDate, endDate } = req.query;
+  const isValidDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+  if ((startDate && !isValidDate(startDate)) || (endDate && !isValidDate(endDate))) {
+    return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+  }
   console.log('[DEBUG] req.user.id:', req.user.id);
   console.log('[DEBUG] req.user.role:', req.user.role);
   console.log('[DEBUG] onlyMyMembers query:', onlyMyMembers);
@@ -557,6 +563,15 @@ exports.getReservations = async (req, res) => {
       filterMode = 'onlyMyMembers';
     }
   }
+
+  if (startDate && endDate) {
+    where.date = { [Op.between]: [startDate, endDate] };
+  } else if (startDate) {
+    where.date = { [Op.gte]: startDate };
+  } else if (endDate) {
+    where.date = { [Op.lte]: endDate };
+  }
+
   console.log('[DEBUG] final reservation filter mode:', filterMode);
   const reservations = await Reservation.findAll({
     where,
