@@ -21,6 +21,16 @@ function toLocalDateString(value) {
   return `${year}-${month}-${day}`;
 }
 
+function combineDateAndTime(dateOnly, reservationTime) {
+  if (!dateOnly || !reservationTime) return null;
+
+  const trimmedTime = String(reservationTime).trim();
+  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(trimmedTime)) return null;
+
+  const normalizedTime = trimmedTime.length === 5 ? `${trimmedTime}:00` : trimmedTime;
+  return `${dateOnly} ${normalizedTime}`;
+}
+
 async function findReservationMatch(memberId, attendanceDate) {
   const localDate = toLocalDateString(attendanceDate);
   if (!localDate) {
@@ -32,7 +42,7 @@ async function findReservationMatch(memberId, attendanceDate) {
       memberId,
       date: localDate,
     },
-    attributes: ['id'],
+    attributes: ['id', 'date', 'time'],
     limit: 2,
     order: [['id', 'ASC']],
   });
@@ -40,7 +50,13 @@ async function findReservationMatch(memberId, attendanceDate) {
   if (reservations.length === 0) return { kind: 'none' };
   if (reservations.length > 1) return { kind: 'multiple' };
 
-  return { kind: 'single', reservationId: reservations[0].id };
+  return {
+    kind: 'single',
+    reservationId: reservations[0].id,
+    reservationDate: reservations[0].date,
+    reservationTime: reservations[0].time,
+    localDate,
+  };
 }
 
 exports.getAttendance = async (req, res) => {
@@ -86,6 +102,14 @@ exports.addAttendance = async (req, res) => {
       return res.status(409).json({ error: 'Bu üyenin seçilen tarihte birden fazla rezervasyonu var' });
     }
 
+    const attendanceDateTime = combineDateAndTime(
+      reservationMatch.localDate || reservationMatch.reservationDate,
+      reservationMatch.reservationTime,
+    );
+    if (!attendanceDateTime) {
+      return res.status(400).json({ error: 'Invalid reservation time' });
+    }
+
     // Load MemberType for card-based logic
     const memberType = await MemberType.findByPk(member.memberTypeId);
     if (!memberType) {
@@ -97,7 +121,7 @@ exports.addAttendance = async (req, res) => {
       const attendance = await Attendance.create({
         memberId,
         salonId,
-        date,
+        date: attendanceDateTime,
         reservationId: reservationMatch.reservationId,
         instructorId,
       });
@@ -110,7 +134,7 @@ exports.addAttendance = async (req, res) => {
       const attendance = await Attendance.create({
         memberId,
         salonId,
-        date,
+        date: attendanceDateTime,
         reservationId: reservationMatch.reservationId,
         instructorId,
       });
@@ -157,6 +181,7 @@ exports.updateAttendance = async (req, res) => {
     }
 
     const dateChanged = currentLocalDate !== nextLocalDate;
+    let nextAttendanceDate = attendance.date;
     if (memberChanged || dateChanged) {
       const reservationMatch = await findReservationMatch(nextMemberId, nextDate);
       if (reservationMatch.kind === 'none') {
@@ -168,11 +193,20 @@ exports.updateAttendance = async (req, res) => {
       if (reservationMatch.kind === 'invalid-date') {
         return res.status(400).json({ error: 'Invalid attendance date' });
       }
+
+      nextAttendanceDate = combineDateAndTime(
+        reservationMatch.localDate || reservationMatch.reservationDate,
+        reservationMatch.reservationTime,
+      );
+      if (!nextAttendanceDate) {
+        return res.status(400).json({ error: 'Invalid reservation time' });
+      }
+
       attendance.reservationId = reservationMatch.reservationId;
     }
 
     attendance.memberId = nextMemberId;
-    attendance.date = nextDate;
+    attendance.date = nextAttendanceDate;
     attendance.salonId = salonId;
     await attendance.save();
 
