@@ -1,4 +1,25 @@
-const { Salon } = require('../models');
+const { Salon, Member, Reservation, Equipment, Expense, User } = require('../models');
+
+const normalizeAssignedSalonIds = (assignedSalonIds) => {
+  if (Array.isArray(assignedSalonIds)) {
+    return assignedSalonIds;
+  }
+
+  if (typeof assignedSalonIds === 'string') {
+    try {
+      const parsedAssignedSalonIds = JSON.parse(assignedSalonIds);
+      return Array.isArray(parsedAssignedSalonIds) ? parsedAssignedSalonIds : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const hasAssignedSalon = (records, salonId) => records.some(({ assignedSalonIds }) => (
+  normalizeAssignedSalonIds(assignedSalonIds).some((assignedSalonId) => Number(assignedSalonId) === salonId)
+));
 
 exports.createSalon = async (req, res) => {
   try {
@@ -41,6 +62,27 @@ exports.updateSalon = async (req, res) => {
 exports.deleteSalon = async (req, res) => {
   const salon = await Salon.findByPk(req.params.id);
   if (!salon) return res.sendStatus(404);
+
+  const [members, users, reservationCount, equipmentCount, expenseCount] = await Promise.all([
+    Member.findAll({ attributes: ['assignedSalonIds'], raw: true }),
+    User.findAll({ attributes: ['assignedSalonIds'], raw: true }),
+    Reservation.count({ where: { salonId: salon.id } }),
+    Equipment.count({ where: { salonId: salon.id } }),
+    Expense.count({ where: { salonId: salon.id } }),
+  ]);
+
+  if (
+    hasAssignedSalon(members, salon.id)
+    || hasAssignedSalon(users, salon.id)
+    || reservationCount > 0
+    || equipmentCount > 0
+    || expenseCount > 0
+  ) {
+    return res.status(400).json({
+      error: 'This salon cannot be deleted because it is currently in use.',
+    });
+  }
+
   await salon.destroy();
   res.sendStatus(204);
 };

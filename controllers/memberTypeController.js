@@ -1,4 +1,4 @@
-const { MemberType } = require('../models');
+const { MemberType, Member } = require('../models');
 
 exports.createMemberType = async (req, res) => {
   try {
@@ -57,6 +57,14 @@ exports.updateMemberType = async (req, res) => {
 exports.deleteMemberType = async (req, res) => {
   const memberType = await MemberType.findByPk(req.params.id);
   if (!memberType) return res.sendStatus(404);
+
+  const memberCount = await Member.count({ where: { memberTypeId: memberType.id } });
+  if (memberCount > 0) {
+    return res.status(400).json({
+      error: 'This member type cannot be deleted because it is currently assigned to one or more members.',
+    });
+  }
+
   await memberType.destroy();
   res.sendStatus(204);
 };

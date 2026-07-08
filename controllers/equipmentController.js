@@ -1,4 +1,4 @@
-const { Equipment } = require('../models');
+const { Equipment, Reservation } = require('../models');
 
 exports.createEquipment = async (req, res) => {
   try {
@@ -42,6 +42,14 @@ exports.updateEquipment = async (req, res) => {
 exports.deleteEquipment = async (req, res) => {
   const equipment = await Equipment.findByPk(req.params.id);
   if (!equipment) return res.sendStatus(404);
+
+  const reservationCount = await Reservation.count({ where: { equipmentId: equipment.id } });
+  if (reservationCount > 0) {
+    return res.status(400).json({
+      error: 'This equipment cannot be deleted because it is used by one or more reservations.',
+    });
+  }
+
   await equipment.destroy();
   res.sendStatus(204);
 };
