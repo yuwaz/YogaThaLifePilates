@@ -62,7 +62,7 @@ exports.getUsers = async (req, res) => {
 exports.getInstructors = async (req, res) => {
   const instructors = await User.findAll({
     where: { role: 'instructor' },
-    attributes: ['id', 'username', 'role', 'assignedSalonIds', 'groupSessionFee', 'individualSessionFee']
+    attributes: ['id', 'username', 'role', 'assignedSalonIds', 'permissions', 'groupSessionFee', 'individualSessionFee']
   });
   res.json(instructors);
 };
