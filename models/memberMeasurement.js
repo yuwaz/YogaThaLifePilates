@@ -11,8 +11,8 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
-    measurementDate: {
-      type: DataTypes.DATEONLY,
+    measuredAt: {
+      type: DataTypes.DATE,
       allowNull: false,
     },
     height: {
@@ -60,15 +60,20 @@ module.exports = (sequelize) => {
       allowNull: true,
       defaultValue: null,
     },
-    note: {
+    notes: {
       type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    createdByUserId: {
+      type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: null,
     },
   }, {
     indexes: [
       { fields: ['memberId'] },
-      { fields: ['measurementDate'] },
+      { fields: ['measuredAt'] },
     ],
   });
 

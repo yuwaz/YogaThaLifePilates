@@ -13,14 +13,10 @@ const measurementColumns = [
 ];
 
 function toDateOnly(value) {
-  if (!value) {
-    return new Date().toISOString().slice(0, 10);
-  }
+  if (!value) return new Date().toISOString();
   const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString().slice(0, 10);
-  }
-  return date.toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
 }
 
 async function tableExists(tableName) {
@@ -31,29 +27,52 @@ async function tableExists(tableName) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
-async function ensureMemberMeasurementsTable() {
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS MemberMeasurements (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      memberId INTEGER NOT NULL,
-      measurementDate DATE NOT NULL,
-      height DECIMAL(10,2) NULL,
-      weight DECIMAL(10,2) NULL,
-      waist DECIMAL(10,2) NULL,
-      hip DECIMAL(10,2) NULL,
-      chest DECIMAL(10,2) NULL,
-      arm DECIMAL(10,2) NULL,
-      leg DECIMAL(10,2) NULL,
-      shoulder DECIMAL(10,2) NULL,
-      bodyFatPercentage DECIMAL(10,2) NULL,
-      note TEXT NULL,
-      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+async function getTableColumns(tableName) {
+  const [rows] = await sequelize.query(`PRAGMA table_info('${tableName}')`);
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => row.name);
+}
 
-  await sequelize.query('CREATE INDEX IF NOT EXISTS idx_member_measurements_member_id ON MemberMeasurements(memberId);');
-  await sequelize.query('CREATE INDEX IF NOT EXISTS idx_member_measurements_measurement_date ON MemberMeasurements(measurementDate);');
+async function createIndexIfColumnExists(tableName, columnName, indexName) {
+  const columns = await getTableColumns(tableName);
+  if (!columns.includes(columnName)) {
+    return;
+  }
+
+  try {
+    await sequelize.query(`CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName}(${columnName});`);
+  } catch (err) {
+    console.warn(`[DB MIGRATION] Optional index ${indexName} was not created: ${err.message}`);
+  }
+}
+
+async function ensureMemberMeasurementsTable() {
+  const hasMemberMeasurements = await tableExists('MemberMeasurements');
+  if (!hasMemberMeasurements) {
+    await sequelize.query(`
+      CREATE TABLE MemberMeasurements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        memberId INTEGER NOT NULL,
+        measuredAt DATETIME NOT NULL,
+        height DECIMAL(10,2) NULL,
+        weight DECIMAL(10,2) NULL,
+        waist DECIMAL(10,2) NULL,
+        hip DECIMAL(10,2) NULL,
+        chest DECIMAL(10,2) NULL,
+        arm DECIMAL(10,2) NULL,
+        leg DECIMAL(10,2) NULL,
+        shoulder DECIMAL(10,2) NULL,
+        bodyFatPercentage DECIMAL(10,2) NULL,
+        notes TEXT NULL,
+        createdByUserId INTEGER NULL,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  }
+
+  await createIndexIfColumnExists('MemberMeasurements', 'memberId', 'idx_member_measurements_member_id');
+  await createIndexIfColumnExists('MemberMeasurements', 'measuredAt', 'idx_member_measurements_measured_at');
 
   const membersTableExists = await tableExists('Members');
   if (!membersTableExists) {
@@ -77,15 +96,16 @@ async function ensureMemberMeasurementsTable() {
   `);
 
   for (const member of members) {
-    const measurementDate = toDateOnly(member.updatedAt);
+    const measuredAt = toDateOnly(member.updatedAt);
     const values = measurementColumns.map((column) => member[column]);
     await sequelize.query(
       `
       INSERT INTO MemberMeasurements (
         memberId,
-        measurementDate,
+        measuredAt,
         ${measurementColumns.join(', ')},
-        note,
+        notes,
+        createdByUserId,
         createdAt,
         updatedAt
       ) VALUES (
@@ -93,12 +113,13 @@ async function ensureMemberMeasurementsTable() {
         ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?,
         NULL,
+        NULL,
         CURRENT_TIMESTAMP,
         CURRENT_TIMESTAMP
       );
       `,
       {
-        replacements: [member.id, measurementDate, ...values],
+        replacements: [member.id, measuredAt, ...values],
       }
     );
   }

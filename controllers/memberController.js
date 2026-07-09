@@ -87,17 +87,17 @@ function normalizeNullableDecimalField(value) {
   return { provided: true, error: 'Measurement fields must be numeric, null, or empty' };
 }
 
-function normalizeMeasurementDateInput(value) {
+function normalizeMeasuredAtInput(value) {
   if (value === undefined || value === null || value === '') {
-    return { value: new Date().toISOString().slice(0, 10) };
+    return { value: new Date() };
   }
 
   const parsedDate = new Date(value);
   if (Number.isNaN(parsedDate.getTime())) {
-    return { error: 'measurementDate must be a valid date' };
+    return { error: 'measuredAt must be a valid date' };
   }
 
-  return { value: parsedDate.toISOString().slice(0, 10) };
+  return { value: parsedDate };
 }
 
 exports.createMember = async (req, res) => {
@@ -245,7 +245,7 @@ exports.getMemberMeasurements = async (req, res) => {
 
     const measurements = await MemberMeasurement.findAll({
       where: { memberId: member.id },
-      order: [['measurementDate', 'DESC'], ['id', 'DESC']],
+      order: [['measuredAt', 'DESC'], ['id', 'DESC']],
     });
 
     return res.json(measurements);
@@ -259,17 +259,17 @@ exports.addMemberMeasurement = async (req, res) => {
     const member = await Member.findByPk(req.params.id);
     if (!member) return res.sendStatus(404);
 
-    const normalizedDate = normalizeMeasurementDateInput(req.body.measurementDate);
-    if (normalizedDate.error) {
-      return res.status(400).json({ error: normalizedDate.error });
+    const normalizedMeasuredAt = normalizeMeasuredAtInput(req.body.measuredAt);
+    if (normalizedMeasuredAt.error) {
+      return res.status(400).json({ error: normalizedMeasuredAt.error });
     }
 
     if (
-      req.body.note !== undefined &&
-      req.body.note !== null &&
-      typeof req.body.note !== 'string'
+      req.body.notes !== undefined &&
+      req.body.notes !== null &&
+      typeof req.body.notes !== 'string'
     ) {
-      return res.status(400).json({ error: 'note must be a string' });
+      return res.status(400).json({ error: 'notes must be a string' });
     }
 
     const snapshotMeasurements = pickMeasurementFields(member.toJSON());
@@ -283,17 +283,19 @@ exports.addMemberMeasurement = async (req, res) => {
       }
     }
 
-    const note = typeof req.body.note === 'string' && req.body.note.trim() !== ''
-      ? req.body.note.trim()
+    const notes = typeof req.body.notes === 'string' && req.body.notes.trim() !== ''
+      ? req.body.notes.trim()
       : null;
+    const createdByUserId = req.user?.id ? Number(req.user.id) : null;
 
     let createdMeasurement;
     await sequelize.transaction(async (t) => {
       createdMeasurement = await MemberMeasurement.create({
         memberId: member.id,
-        measurementDate: normalizedDate.value,
+        measuredAt: normalizedMeasuredAt.value,
         ...snapshotMeasurements,
-        note,
+        notes,
+        createdByUserId,
       }, { transaction: t });
 
       member.set(snapshotMeasurements);
