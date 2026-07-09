@@ -11,6 +11,8 @@ router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authoriz
 router.post('/:id/restore', authorizePagePermission('members'), controller.restoreMember);
 router.get('/', authorizeRoles(['admin', 'instructor']), controller.getMembers);
 router.get('/all', authorizeRoles(['admin']), controller.getAllMembers);
+router.get('/:id/measurements', authorizeRoles(['admin', 'instructor']), controller.getMemberMeasurements);
+router.post('/:id/measurements', authorizePagePermission('members'), controller.addMemberMeasurement);
 router.get('/:id', authorizeRoles(['admin', 'instructor']), controller.getMember);
 router.post('/', authorizePagePermission('members'), controller.createMember);
 router.put('/:id', authorizePagePermission('members'), controller.updateMember);

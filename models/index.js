@@ -13,6 +13,7 @@ const Payment = require('./payment');
 const PaymentMethod = require('./paymentMethod');
 const MemberLessonPackage = require('./memberLessonPackage');
 const Expense = require('./expense');
+const MemberMeasurement = require('./memberMeasurement');
 
 const preferredDbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
@@ -47,6 +48,7 @@ const models = {
   PaymentMethod: PaymentMethod(sequelize),
   MemberLessonPackage: MemberLessonPackage(sequelize),
   Expense: Expense(sequelize),
+  MemberMeasurement: MemberMeasurement(sequelize),
 };
 // MemberLessonPackage associations
 models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
@@ -60,6 +62,8 @@ models.Salon.hasMany(models.Equipment, { foreignKey: 'salonId' });
 
 models.Member.belongsTo(models.MemberType, { foreignKey: 'memberTypeId' });
 models.MemberType.hasMany(models.Member, { foreignKey: 'memberTypeId' });
+models.Member.hasMany(models.MemberMeasurement, { foreignKey: 'memberId' });
+models.MemberMeasurement.belongsTo(models.Member, { foreignKey: 'memberId' });
 
 models.Reservation.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Reservation.belongsTo(models.Equipment, { foreignKey: 'equipmentId' });

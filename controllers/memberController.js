@@ -51,7 +51,7 @@ exports.restoreMember = async (req, res) => {
     return res.status(500).json({ message: 'Failed to reactivate member', error: err.message });
   }
 };
-const { Member, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation } = require('../models');
+const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation } = require('../models');
 const { Op } = require('sequelize');
 
 const measurementFields = ['height', 'weight', 'waist', 'hip', 'chest', 'arm', 'leg', 'shoulder', 'bodyFatPercentage'];
@@ -85,6 +85,19 @@ function normalizeNullableDecimalField(value) {
     return { provided: true, value };
   }
   return { provided: true, error: 'Measurement fields must be numeric, null, or empty' };
+}
+
+function normalizeMeasurementDateInput(value) {
+  if (value === undefined || value === null || value === '') {
+    return { value: new Date().toISOString().slice(0, 10) };
+  }
+
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return { error: 'measurementDate must be a valid date' };
+  }
+
+  return { value: parsedDate.toISOString().slice(0, 10) };
 }
 
 exports.createMember = async (req, res) => {
@@ -223,6 +236,74 @@ exports.getMember = async (req, res) => {
   memberObj.assignedLessonPackages = assignedLessonPackages;
   // Always include assignedInstructorId in detail
   res.json(memberObj);
+};
+
+exports.getMemberMeasurements = async (req, res) => {
+  try {
+    const member = await Member.findByPk(req.params.id);
+    if (!member) return res.sendStatus(404);
+
+    const measurements = await MemberMeasurement.findAll({
+      where: { memberId: member.id },
+      order: [['measurementDate', 'DESC'], ['id', 'DESC']],
+    });
+
+    return res.json(measurements);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+};
+
+exports.addMemberMeasurement = async (req, res) => {
+  try {
+    const member = await Member.findByPk(req.params.id);
+    if (!member) return res.sendStatus(404);
+
+    const normalizedDate = normalizeMeasurementDateInput(req.body.measurementDate);
+    if (normalizedDate.error) {
+      return res.status(400).json({ error: normalizedDate.error });
+    }
+
+    if (
+      req.body.note !== undefined &&
+      req.body.note !== null &&
+      typeof req.body.note !== 'string'
+    ) {
+      return res.status(400).json({ error: 'note must be a string' });
+    }
+
+    const snapshotMeasurements = pickMeasurementFields(member.toJSON());
+    for (const field of measurementFields) {
+      const normalized = normalizeNullableDecimalField(req.body[field]);
+      if (normalized.error) {
+        return res.status(400).json({ error: normalized.error });
+      }
+      if (normalized.provided) {
+        snapshotMeasurements[field] = normalized.value;
+      }
+    }
+
+    const note = typeof req.body.note === 'string' && req.body.note.trim() !== ''
+      ? req.body.note.trim()
+      : null;
+
+    let createdMeasurement;
+    await sequelize.transaction(async (t) => {
+      createdMeasurement = await MemberMeasurement.create({
+        memberId: member.id,
+        measurementDate: normalizedDate.value,
+        ...snapshotMeasurements,
+        note,
+      }, { transaction: t });
+
+      member.set(snapshotMeasurements);
+      await member.save({ transaction: t });
+    });
+
+    return res.status(201).json(createdMeasurement);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 };
 
 exports.updateMember = async (req, res) => {
