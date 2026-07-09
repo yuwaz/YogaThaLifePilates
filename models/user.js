@@ -30,6 +30,16 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: [],
     },
+    groupSessionFee: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    individualSessionFee: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
   });
   return User;
 };

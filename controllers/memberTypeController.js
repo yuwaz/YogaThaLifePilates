@@ -2,9 +2,12 @@ const { MemberType, Member } = require('../models');
 
 exports.createMemberType = async (req, res) => {
   try {
-    const { name, color, isCardBased = false, cardUsageFee = 0 } = req.body;
+    const { name, color, isCardBased = false, cardUsageFee = 0, sessionType } = req.body;
     if (!name || !color) return res.status(400).json({ error: 'Missing required fields' });
     if (typeof name !== 'string' || typeof color !== 'string') return res.status(400).json({ error: 'Invalid field types' });
+    if (sessionType !== undefined && sessionType !== 'group' && sessionType !== 'individual') {
+      return res.status(400).json({ error: 'sessionType must be "group" or "individual"' });
+    }
     if (isCardBased) {
       if (cardUsageFee === undefined || isNaN(Number(cardUsageFee)) || Number(cardUsageFee) < 0) {
         return res.status(400).json({ error: 'cardUsageFee must be >= 0 for card-based member types' });
@@ -15,6 +18,7 @@ exports.createMemberType = async (req, res) => {
       color,
       isCardBased: !!isCardBased,
       cardUsageFee: isCardBased ? Number(cardUsageFee) : 0,
+      sessionType: sessionType === undefined ? 'group' : sessionType,
     });
     res.status(201).json(memberType);
   } catch (err) {
@@ -35,11 +39,17 @@ exports.getMemberType = async (req, res) => {
 
 exports.updateMemberType = async (req, res) => {
   try {
-    const { name, color, isCardBased, cardUsageFee } = req.body;
+    const { name, color, isCardBased, cardUsageFee, sessionType } = req.body;
     const memberType = await MemberType.findByPk(req.params.id);
     if (!memberType) return res.sendStatus(404);
     if (name) memberType.name = name;
     if (color) memberType.color = color;
+    if (typeof sessionType !== 'undefined') {
+      if (sessionType !== 'group' && sessionType !== 'individual') {
+        return res.status(400).json({ error: 'sessionType must be "group" or "individual"' });
+      }
+      memberType.sessionType = sessionType;
+    }
     if (typeof isCardBased !== 'undefined') memberType.isCardBased = !!isCardBased;
     if (typeof cardUsageFee !== 'undefined') {
       if (memberType.isCardBased && (isNaN(Number(cardUsageFee)) || Number(cardUsageFee) < 0)) {

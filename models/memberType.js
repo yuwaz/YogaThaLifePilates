@@ -28,6 +28,14 @@ module.exports = (sequelize) => {
       allowNull: true,
       defaultValue: 0,
     },
+    sessionType: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: 'group',
+      validate: {
+        isIn: [['group', 'individual']],
+      },
+    },
   });
   return MemberType;
 };

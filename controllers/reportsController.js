@@ -126,8 +126,8 @@ exports.getReports = async (req, res) => {
       }
       // Fill instructor names
       for (const key in instructorMap) {
-        const instructor = await Member.findByPk(instructorMap[key].instructorId);
-        instructorMap[key].instructorName = instructor ? instructor.name : '';
+        const instructor = await User.findByPk(instructorMap[key].instructorId, { attributes: ['id', 'username'] });
+        instructorMap[key].instructorName = instructor ? instructor.username : '';
       }
       instructorAttendanceBreakdown = Object.values(instructorMap);
       // Card-based summary (existing logic)
@@ -191,7 +191,12 @@ exports.getReports = async (req, res) => {
         }, {
           model: Member,
           required: false,
-          attributes: ['id', 'name'],
+          attributes: ['id', 'name', 'memberTypeId'],
+          include: [{
+            model: MemberType,
+            required: false,
+            attributes: ['id', 'isCardBased', 'sessionType'],
+          }],
         }],
         attributes: ['id', 'instructorId', 'reservationId'],
       });
@@ -200,10 +205,17 @@ exports.getReports = async (req, res) => {
       const users = instructorIds.length
         ? await User.findAll({
             where: { id: { [Op.in]: instructorIds } },
-            attributes: ['id', 'username'],
+            attributes: ['id', 'username', 'groupSessionFee', 'individualSessionFee'],
           })
         : [];
       const instructorNameById = new Map(users.map((u) => [Number(u.id), u.username]));
+      const instructorFeeById = new Map(users.map((u) => [
+        Number(u.id),
+        {
+          groupSessionFee: Number(u.groupSessionFee || 0),
+          individualSessionFee: Number(u.individualSessionFee || 0),
+        },
+      ]));
 
       const salonsForNames = await Salon.findAll({ attributes: ['id', 'name'] });
       const salonNameById = new Map(salonsForNames.map((s) => [Number(s.id), s.name]));
@@ -242,12 +254,32 @@ exports.getReports = async (req, res) => {
             participantCount: 0,
             members: [],
             memberIds: new Set(),
+            hasGroupSignal: false,
+            hasIndividualSignal: false,
           });
         }
 
         const session = row.sessions.get(sessionKey);
         const memberId = member ? Number(member.id) : null;
         const memberName = member && member.name ? member.name : '-';
+        const memberType = member && member.MemberType ? member.MemberType : null;
+        const isCardBased = memberType ? memberType.isCardBased === true : false;
+        const rawSessionType = memberType && typeof memberType.sessionType === 'string'
+          ? memberType.sessionType.trim().toLowerCase()
+          : null;
+
+        const isGroupParticipant =
+          !memberType ||
+          isCardBased ||
+          rawSessionType === 'group' ||
+          (rawSessionType !== 'individual' && rawSessionType !== 'group');
+
+        if (isGroupParticipant) {
+          session.hasGroupSignal = true;
+        } else if (rawSessionType === 'individual') {
+          session.hasIndividualSignal = true;
+        }
+
         if (memberId === null || Number.isNaN(memberId)) {
           session.members.push({
             memberId: null,
@@ -263,29 +295,44 @@ exports.getReports = async (req, res) => {
       }
 
       instructorSessionBreakdown = Array.from(grouped.values())
-        .map((row) => ({
-          instructorId: row.instructorId,
-          instructorName: row.instructorName,
-          salonId: row.salonId,
-          salonName: row.salonName,
-          sessionCount: row.sessions.size,
-          participantCount: row.participantCount,
-          sessions: Array.from(row.sessions.values())
-            .map((session) => ({
-              date: session.date,
-              time: session.time,
-              salonId: session.salonId,
-              salonName: session.salonName,
-              participantCount: session.members.length,
-              members: session.members,
-            }))
-            .sort((a, b) => {
-              if (a.date === b.date) {
-                return String(a.time).localeCompare(String(b.time), 'tr');
-              }
-              return String(a.date).localeCompare(String(b.date), 'tr');
-            }),
-        }))
+        .map((row) => {
+          const sessionValues = Array.from(row.sessions.values());
+          const groupSessionCount = sessionValues.filter((session) => session.hasGroupSignal).length;
+          const individualSessionCount = sessionValues.length - groupSessionCount;
+          const feeConfig = instructorFeeById.get(row.instructorId) || { groupSessionFee: 0, individualSessionFee: 0 };
+          const groupSessionFee = Number(feeConfig.groupSessionFee || 0);
+          const individualSessionFee = Number(feeConfig.individualSessionFee || 0);
+          const totalInstructorPayout = (groupSessionCount * groupSessionFee) + (individualSessionCount * individualSessionFee);
+
+          return {
+            instructorId: row.instructorId,
+            instructorName: row.instructorName,
+            salonId: row.salonId,
+            salonName: row.salonName,
+            sessionCount: row.sessions.size,
+            participantCount: row.participantCount,
+            sessions: sessionValues
+              .map((session) => ({
+                date: session.date,
+                time: session.time,
+                salonId: session.salonId,
+                salonName: session.salonName,
+                participantCount: session.members.length,
+                members: session.members,
+              }))
+              .sort((a, b) => {
+                if (a.date === b.date) {
+                  return String(a.time).localeCompare(String(b.time), 'tr');
+                }
+                return String(a.date).localeCompare(String(b.date), 'tr');
+              }),
+            groupSessionCount,
+            individualSessionCount,
+            groupSessionFee,
+            individualSessionFee,
+            totalInstructorPayout,
+          };
+        })
         .sort((a, b) => {
           if (a.instructorName === b.instructorName) {
             return a.salonName.localeCompare(b.salonName, 'tr');
