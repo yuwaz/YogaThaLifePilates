@@ -16,6 +16,7 @@ const paymentsRoutes = require('./routes/settings/payments');
 const attendancesRoutes = require('./routes/settings/attendances');
 const reportsRoutes = require('./routes/settings/reports');
 const expensesRoutes = require('./routes/settings/expenses');
+const manualCardUsagesRoutes = require('./routes/settings/manual-card-usages');
 
 const app = express();
 // Apply CORS globally before all routes
@@ -44,6 +45,7 @@ app.use('/settings/reservations', reservationsRoutes);
 app.use('/settings/payments', paymentsRoutes);
 app.use('/settings/attendances', attendancesRoutes);
 app.use('/settings/expenses', expensesRoutes);
+app.use('/settings/manual-card-usages', manualCardUsagesRoutes);
 
 app.use('/settings/memberTypes', memberTypesRoutes);
 app.use('/settings/paymentMethods', paymentMethodsRoutes);
@@ -64,6 +66,7 @@ const ensureAttendanceReservationColumn = require('./ensureAttendanceReservation
 const ensureAttendanceInstructorColumn = require('./ensureAttendanceInstructorColumn');
 const ensureMemberMeasurementsTable = require('./ensureMemberMeasurementsTable');
 const ensureInstructorPayoutAndSessionTypeColumns = require('./ensureInstructorPayoutAndSessionTypeColumns');
+const ensureManualCardUsagesTable = require('./ensureManualCardUsagesTable');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureMemberSoftDeleteColumns();
@@ -71,6 +74,7 @@ const PORT = process.env.PORT || 3000;
   await ensureAttendanceInstructorColumn();
   await ensureMemberMeasurementsTable();
   await ensureInstructorPayoutAndSessionTypeColumns();
+  await ensureManualCardUsagesTable();
   await sequelize.sync();
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));

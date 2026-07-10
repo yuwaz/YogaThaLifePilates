@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense, User } = require('../models');
+const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense, User, ManualCardUsage } = require('../models');
 
 exports.getReports = async (req, res) => {
   try {
@@ -101,6 +101,10 @@ exports.getReports = async (req, res) => {
     // Card-based attendance revenue summary (safe, will not break reports)
     let totalCardBasedAttendanceCount = 0;
     let totalCardBasedRevenue = 0;
+    let totalAutomaticUsageCount = 0;
+    let totalManualUsageCount = 0;
+    let totalAutomaticRevenue = 0;
+    let totalManualRevenue = 0;
     let cardBasedSummary = [];
     // --- New: Attendance metrics ---
     let totalAttendanceCount = 0;
@@ -130,36 +134,72 @@ exports.getReports = async (req, res) => {
         instructorMap[key].instructorName = instructor ? instructor.username : '';
       }
       instructorAttendanceBreakdown = Object.values(instructorMap);
-      // Card-based summary (existing logic)
+      // Card-based automatic summary from attendances
       const memberIdToType = {};
       members.forEach(m => { memberIdToType[m.id] = m.memberTypeId; });
       const cardBasedAttendances = attendances.filter(a => cardBasedMemberTypeIds.includes(memberIdToType[a.memberId]));
-      const cardBasedSummaryMap = {};
+      const automaticCardBasedSummaryMap = {};
       cardBasedAttendances.forEach(a => {
         const mtId = memberIdToType[a.memberId];
-        if (!cardBasedSummaryMap[mtId]) {
-          cardBasedSummaryMap[mtId] = { attendanceCount: 0 };
+        if (!automaticCardBasedSummaryMap[mtId]) {
+          automaticCardBasedSummaryMap[mtId] = { usageCount: 0 };
         }
-        cardBasedSummaryMap[mtId].attendanceCount++;
+        automaticCardBasedSummaryMap[mtId].usageCount++;
       });
+
+      // Manual card usage summary from ManualCardUsages (isolated from attendances)
+      const manualWhere = {};
+      if (startDate || endDate) manualWhere.usageDate = dateFilter;
+      if (cardBasedMemberTypeIds.length) {
+        manualWhere.memberTypeId = { [Op.in]: cardBasedMemberTypeIds };
+      } else {
+        manualWhere.memberTypeId = -1;
+      }
+
+      const manualCardUsages = await ManualCardUsage.findAll({ where: manualWhere });
+      const manualCardBasedSummaryMap = {};
+      manualCardUsages.forEach((row) => {
+        const mtId = Number(row.memberTypeId);
+        if (!manualCardBasedSummaryMap[mtId]) {
+          manualCardBasedSummaryMap[mtId] = { usageCount: 0 };
+        }
+        manualCardBasedSummaryMap[mtId].usageCount += Number(row.usageCount || 0);
+      });
+
       cardBasedSummary = cardBasedMemberTypes.map(mt => {
-        const attendanceCount = cardBasedSummaryMap[mt.id]?.attendanceCount || 0;
+        const automaticUsageCount = Number(automaticCardBasedSummaryMap[mt.id]?.usageCount || 0);
+        const manualUsageCount = Number(manualCardBasedSummaryMap[mt.id]?.usageCount || 0);
+        const attendanceCount = automaticUsageCount + manualUsageCount;
         const cardUsageFee = Number(mt.cardUsageFee || 0);
+        const automaticRevenue = automaticUsageCount * cardUsageFee;
+        const manualRevenue = manualUsageCount * cardUsageFee;
         return {
           memberTypeId: mt.id,
           memberTypeName: mt.name,
           attendanceCount,
+          automaticUsageCount,
+          manualUsageCount,
           cardUsageFee,
-          revenue: attendanceCount * cardUsageFee
+          automaticRevenue,
+          manualRevenue,
+          revenue: automaticRevenue + manualRevenue
         };
       }).filter(row => row.attendanceCount > 0);
       totalCardBasedAttendanceCount = cardBasedSummary.reduce((sum, row) => sum + row.attendanceCount, 0);
       totalCardBasedRevenue = cardBasedSummary.reduce((sum, row) => sum + row.revenue, 0);
+      totalAutomaticUsageCount = cardBasedSummary.reduce((sum, row) => sum + Number(row.automaticUsageCount || 0), 0);
+      totalManualUsageCount = cardBasedSummary.reduce((sum, row) => sum + Number(row.manualUsageCount || 0), 0);
+      totalAutomaticRevenue = cardBasedSummary.reduce((sum, row) => sum + Number(row.automaticRevenue || 0), 0);
+      totalManualRevenue = cardBasedSummary.reduce((sum, row) => sum + Number(row.manualRevenue || 0), 0);
       // [Reports] totalCardBasedRevenue debug log
       console.log('[Reports] totalCardBasedRevenue:', totalCardBasedRevenue);
     } catch (err) {
       totalCardBasedAttendanceCount = 0;
       totalCardBasedRevenue = 0;
+      totalAutomaticUsageCount = 0;
+      totalManualUsageCount = 0;
+      totalAutomaticRevenue = 0;
+      totalManualRevenue = 0;
       cardBasedSummary = [];
       totalAttendanceCount = 0;
       instructorAttendanceBreakdown = [];
@@ -169,6 +209,10 @@ exports.getReports = async (req, res) => {
       memberTypeId: row.memberTypeId,
       name: row.memberTypeName,
       count: row.attendanceCount,
+      automaticUsageCount: row.automaticUsageCount,
+      manualUsageCount: row.manualUsageCount,
+      automaticRevenue: row.automaticRevenue,
+      manualRevenue: row.manualRevenue,
       revenue: row.revenue
     }));
 
@@ -428,6 +472,10 @@ exports.getReports = async (req, res) => {
         totalCardBasedAttendanceCount,
         totalCardBasedRevenue,
         cardBasedRevenue,
+        automaticUsageCount: totalAutomaticUsageCount,
+        manualUsageCount: totalManualUsageCount,
+        automaticRevenue: totalAutomaticRevenue,
+        manualRevenue: totalManualRevenue,
         totalAttendanceCount,
         totalDiscountAmount,
         soldPackageRevenue, // Satılan Paket Tutarı
