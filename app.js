@@ -67,6 +67,7 @@ const ensureAttendanceInstructorColumn = require('./ensureAttendanceInstructorCo
 const ensureMemberMeasurementsTable = require('./ensureMemberMeasurementsTable');
 const ensureInstructorPayoutAndSessionTypeColumns = require('./ensureInstructorPayoutAndSessionTypeColumns');
 const ensureManualCardUsagesTable = require('./ensureManualCardUsagesTable');
+const ensureStudiosTable = require('./ensureStudiosTable');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureMemberSoftDeleteColumns();
@@ -75,6 +76,7 @@ const PORT = process.env.PORT || 3000;
   await ensureMemberMeasurementsTable();
   await ensureInstructorPayoutAndSessionTypeColumns();
   await ensureManualCardUsagesTable();
+  await ensureStudiosTable();
   await sequelize.sync();
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));

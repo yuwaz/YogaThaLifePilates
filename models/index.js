@@ -15,6 +15,7 @@ const MemberLessonPackage = require('./memberLessonPackage');
 const Expense = require('./expense');
 const MemberMeasurement = require('./memberMeasurement');
 const ManualCardUsage = require('./manualCardUsage');
+const Studio = require('./studio');
 
 const preferredDbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
@@ -51,6 +52,7 @@ const models = {
   Expense: Expense(sequelize),
   MemberMeasurement: MemberMeasurement(sequelize),
   ManualCardUsage: ManualCardUsage(sequelize),
+  Studio: Studio(sequelize),
 };
 // MemberLessonPackage associations
 models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
