@@ -25,6 +25,15 @@ module.exports = (sequelize) => {
         min: 0,
       },
     },
+    studioId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      references: {
+        model: 'Studios',
+        key: 'id',
+      },
+    },
   });
   return LessonPackage;
 };
