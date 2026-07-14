@@ -19,6 +19,15 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    studioId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      references: {
+        model: 'Studios',
+        key: 'id',
+      },
+    },
   });
   return Equipment;
 };
