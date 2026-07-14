@@ -30,6 +30,15 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: [],
     },
+    studioId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      references: {
+        model: 'Studios',
+        key: 'id',
+      },
+    },
     groupSessionFee: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,

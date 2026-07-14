@@ -87,6 +87,9 @@ models.Attendance.belongsTo(models.User, {
   constraints: false,
 });
 
+models.Studio.hasMany(models.User, { foreignKey: 'studioId' });
+models.User.belongsTo(models.Studio, { foreignKey: 'studioId' });
+
 models.Payment.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Payment.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });
 
