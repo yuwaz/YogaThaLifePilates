@@ -15,6 +15,15 @@ module.exports = (sequelize) => {
       type: DataTypes.ENUM('Yoga', 'Pilates'),
       allowNull: false,
     },
+    studioId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      references: {
+        model: 'Studios',
+        key: 'id',
+      },
+    },
   });
   return Salon;
 };
