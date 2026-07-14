@@ -93,6 +93,8 @@ models.Studio.hasMany(models.Member, { foreignKey: 'studioId' });
 models.Member.belongsTo(models.Studio, { foreignKey: 'studioId' });
 models.Studio.hasMany(models.Salon, { foreignKey: 'studioId' });
 models.Salon.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.MemberType, { foreignKey: 'studioId' });
+models.MemberType.belongsTo(models.Studio, { foreignKey: 'studioId' });
 
 models.Payment.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Payment.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });
