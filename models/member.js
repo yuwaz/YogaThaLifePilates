@@ -105,6 +105,15 @@ module.exports = (sequelize) => {
       allowNull: true,
       // No FK constraint for minimal risk, but can be added later
     },
+    studioId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      references: {
+        model: 'Studios',
+        key: 'id',
+      },
+    },
     isActive: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
