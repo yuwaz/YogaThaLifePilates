@@ -79,6 +79,7 @@ const ensureExpenseStudioIdColumn = require('./ensureExpenseStudioIdColumn');
 const ensurePaymentStudioIdColumn = require('./ensurePaymentStudioIdColumn');
 const ensureReservationStudioIdColumn = require('./ensureReservationStudioIdColumn');
 const ensureAttendanceStudioIdColumn = require('./ensureAttendanceStudioIdColumn');
+const ensureMemberLessonPackageStudioIdColumn = require('./ensureMemberLessonPackageStudioIdColumn');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
@@ -93,6 +94,7 @@ const PORT = process.env.PORT || 3000;
   await ensurePaymentStudioIdColumn();
   await ensureReservationStudioIdColumn();
   await ensureAttendanceStudioIdColumn();
+  await ensureMemberLessonPackageStudioIdColumn();
   await ensureMemberSoftDeleteColumns();
   await ensureAttendanceReservationColumn();
   await ensureAttendanceInstructorColumn();

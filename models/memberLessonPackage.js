@@ -41,6 +41,15 @@ module.exports = (sequelize) => {
       type: DataTypes.FLOAT,
       allowNull: false,
     },
+    studioId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      references: {
+        model: 'Studios',
+        key: 'id',
+      },
+    },
   });
   return MemberLessonPackage;
 };
