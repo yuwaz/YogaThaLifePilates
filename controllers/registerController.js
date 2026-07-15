@@ -100,6 +100,8 @@ exports.registerStudio = async (req, res) => {
         timezone: createdStudio.timezone,
         subscriptionStatus: createdStudio.subscriptionStatus,
         trialEndsAt: createdStudio.trialEndsAt,
+        onboardingCompleted: Boolean(createdStudio.onboardingCompleted),
+        onboardingStep: createdStudio.onboardingStep,
       },
     });
   } catch (err) {

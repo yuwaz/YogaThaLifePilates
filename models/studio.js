@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const {
   SUPPORTED_COUNTRY_CODES,
   SUPPORTED_CURRENCIES,
+  ONBOARDING_STEPS,
   SUBSCRIPTION_STATUSES,
   normalizeUppercaseCode,
   isSupportedCountryCode,
@@ -78,6 +79,19 @@ module.exports = (sequelize) => {
     trialEndsAt: {
       type: DataTypes.DATE,
       allowNull: true,
+    },
+    onboardingCompleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    onboardingStep: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'studio',
+      validate: {
+        isIn: [ONBOARDING_STEPS],
+      },
     },
   });
 

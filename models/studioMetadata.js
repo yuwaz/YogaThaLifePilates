@@ -23,6 +23,16 @@ const SUBSCRIPTION_STATUSES = Object.freeze([
   'cancelled',
 ]);
 
+const ONBOARDING_STEPS = Object.freeze([
+  'studio',
+  'salon',
+  'member_types',
+  'payment_methods',
+  'equipment',
+  'users',
+  'completed',
+]);
+
 function normalizeUppercaseCode(value) {
   if (typeof value !== 'string') {
     return value;
@@ -43,6 +53,10 @@ function isSupportedSubscriptionStatus(value) {
   return SUBSCRIPTION_STATUSES.includes(value);
 }
 
+function isSupportedOnboardingStep(value) {
+  return ONBOARDING_STEPS.includes(value);
+}
+
 function isValidIanaTimezone(value) {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return false;
@@ -60,9 +74,11 @@ module.exports = {
   SUPPORTED_COUNTRY_CODES,
   SUPPORTED_CURRENCIES,
   SUBSCRIPTION_STATUSES,
+  ONBOARDING_STEPS,
   normalizeUppercaseCode,
   isSupportedCountryCode,
   isSupportedCurrency,
   isSupportedSubscriptionStatus,
+  isSupportedOnboardingStep,
   isValidIanaTimezone,
 };

@@ -18,6 +18,7 @@ const attendancesRoutes = require('./routes/settings/attendances');
 const reportsRoutes = require('./routes/settings/reports');
 const expensesRoutes = require('./routes/settings/expenses');
 const manualCardUsagesRoutes = require('./routes/settings/manual-card-usages');
+const studioOnboardingRoutes = require('./routes/settings/studio-onboarding');
 
 const app = express();
 // Apply CORS globally before all routes
@@ -48,6 +49,7 @@ app.use('/settings/payments', paymentsRoutes);
 app.use('/settings/attendances', attendancesRoutes);
 app.use('/settings/expenses', expensesRoutes);
 app.use('/settings/manual-card-usages', manualCardUsagesRoutes);
+app.use('/settings/studio/onboarding', studioOnboardingRoutes);
 
 app.use('/settings/memberTypes', memberTypesRoutes);
 app.use('/settings/paymentMethods', paymentMethodsRoutes);
@@ -70,6 +72,7 @@ const ensureMemberMeasurementsTable = require('./ensureMemberMeasurementsTable')
 const ensureInstructorPayoutAndSessionTypeColumns = require('./ensureInstructorPayoutAndSessionTypeColumns');
 const ensureManualCardUsagesTable = require('./ensureManualCardUsagesTable');
 const ensureStudiosTable = require('./ensureStudiosTable');
+const ensureStudioOnboardingColumns = require('./ensureStudioOnboardingColumns');
 const ensureUserStudioIdColumn = require('./ensureUserStudioIdColumn');
 const ensureMemberStudioIdColumn = require('./ensureMemberStudioIdColumn');
 const ensureSalonStudioIdColumn = require('./ensureSalonStudioIdColumn');
@@ -86,6 +89,7 @@ const ensureMemberMeasurementStudioIdColumn = require('./ensureMemberMeasurement
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
+  await ensureStudioOnboardingColumns();
   await ensureUserStudioIdColumn();
   await ensureMemberStudioIdColumn();
   await ensureSalonStudioIdColumn();
