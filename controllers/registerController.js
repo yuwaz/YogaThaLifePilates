@@ -1,6 +1,9 @@
 const bcrypt = require('bcrypt');
 const { sequelize, Studio, User } = require('../models');
 const { buildAuthPayload, signAuthToken } = require('../utils/authToken');
+const { allocateRegistrationStudioCode } = require('../services/studioCode');
+
+const MAX_STUDIO_CODE_ATTEMPTS = 5;
 
 exports.registerStudio = async (req, res) => {
   const requiredFields = [
@@ -40,40 +43,80 @@ exports.registerStudio = async (req, res) => {
   let createdStudio;
   let createdUser;
 
-  try {
-    await sequelize.transaction(async (t) => {
-      const now = new Date();
-      const trialEndsAt = new Date(now);
-      trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + 7);
+  for (let attempt = 1; attempt <= MAX_STUDIO_CODE_ATTEMPTS; attempt += 1) {
+    try {
+      await sequelize.transaction(async (t) => {
+        const studios = await Studio.findAll({
+          attributes: ['studioCode'],
+          order: [['id', 'ASC']],
+          transaction: t,
+          raw: true,
+        });
 
-      createdStudio = await Studio.create({
-        name: studioName,
-        country,
-        currency,
-        timezone,
-        phone,
-        email,
-        subscriptionStatus: 'trial',
-        trialEndsAt,
-      }, { transaction: t });
+        const usedStudioCodes = new Set(
+          studios
+            .map((row) => row.studioCode)
+            .filter((value) => typeof value === 'string' && value.trim() !== '')
+            .map((value) => value.trim())
+        );
 
-      const hashedPassword = await bcrypt.hash(adminPassword, 10);
+        const studioCode = allocateRegistrationStudioCode(studioName, usedStudioCodes);
+        if (!studioCode) {
+          const validationError = new Error('Invalid studio code');
+          validationError.name = 'SequelizeValidationError';
+          throw validationError;
+        }
 
-      createdUser = await User.create({
-        username: adminUsername,
-        password: hashedPassword,
-        role: 'admin',
-        assignedSalonIds: [],
-        permissions: [],
-        groupSessionFee: 0,
-        individualSessionFee: 0,
-        studioId: createdStudio.id,
-      }, { transaction: t });
-    });
-  } catch (err) {
-    if (err.name === 'SequelizeUniqueConstraintError') {
-      return res.status(400).json({ error: 'Validation error' });
+        const now = new Date();
+        const trialEndsAt = new Date(now);
+        trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + 7);
+
+        createdStudio = await Studio.create({
+          name: studioName,
+          studioCode,
+          country,
+          currency,
+          timezone,
+          phone,
+          email,
+          subscriptionStatus: 'trial',
+          trialEndsAt,
+        }, { transaction: t });
+
+        const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+        createdUser = await User.create({
+          username: adminUsername,
+          password: hashedPassword,
+          role: 'admin',
+          assignedSalonIds: [],
+          permissions: [],
+          groupSessionFee: 0,
+          individualSessionFee: 0,
+          studioId: createdStudio.id,
+        }, { transaction: t });
+      });
+      break;
+    } catch (err) {
+      const isStudioCodeConflict = err.name === 'SequelizeUniqueConstraintError'
+        && (
+          err.fields?.studioCode
+          || err.errors?.some((error) => error.path === 'studioCode')
+        );
+
+      if (isStudioCodeConflict && attempt < MAX_STUDIO_CODE_ATTEMPTS) {
+        continue;
+      }
+
+      if (err.name === 'SequelizeValidationError' || err.name === 'SequelizeUniqueConstraintError') {
+        return res.status(400).json({ error: 'Validation error' });
+      }
+
+      return res.status(500).json({ error: 'Server error' });
     }
+  }
+
+  if (!createdStudio || !createdUser) {
     return res.status(500).json({ error: 'Server error' });
   }
 
@@ -95,6 +138,7 @@ exports.registerStudio = async (req, res) => {
       studio: {
         id: createdStudio.id,
         name: createdStudio.name,
+        studioCode: createdStudio.studioCode,
         country: createdStudio.country,
         currency: createdStudio.currency,
         timezone: createdStudio.timezone,

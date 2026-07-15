@@ -23,6 +23,21 @@ const SUBSCRIPTION_STATUSES = Object.freeze([
   'cancelled',
 ]);
 
+const TURKISH_CHAR_MAP = Object.freeze({
+  Ç: 'c',
+  Ğ: 'g',
+  İ: 'i',
+  Ö: 'o',
+  Ş: 's',
+  Ü: 'u',
+  ç: 'c',
+  ğ: 'g',
+  ı: 'i',
+  ö: 'o',
+  ş: 's',
+  ü: 'u',
+});
+
 const ONBOARDING_STEPS = Object.freeze([
   'studio',
   'salon',
@@ -58,6 +73,38 @@ function isSupportedCurrency(value) {
 
 function isSupportedSubscriptionStatus(value) {
   return SUBSCRIPTION_STATUSES.includes(value);
+}
+
+function normalizeStudioCode(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/[ÇĞİÖŞÜçğıöşü]/g, (character) => TURKISH_CHAR_MAP[character] || character)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return normalized;
+}
+
+function isValidStudioCode(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  if (value.length < 3 || value.length > 40) {
+    return false;
+  }
+
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+function generateStudioCodeBase(studioName) {
+  return normalizeStudioCode(studioName);
 }
 
 function isSupportedOnboardingStep(value) {
@@ -102,12 +149,16 @@ module.exports = {
   SUPPORTED_COUNTRY_CODES,
   SUPPORTED_CURRENCIES,
   SUBSCRIPTION_STATUSES,
+  TURKISH_CHAR_MAP,
   ONBOARDING_STEPS,
   ONBOARDING_STEP_INDEX,
   normalizeUppercaseCode,
   isSupportedCountryCode,
   isSupportedCurrency,
   isSupportedSubscriptionStatus,
+  normalizeStudioCode,
+  isValidStudioCode,
+  generateStudioCodeBase,
   isSupportedOnboardingStep,
   getOnboardingStepIndex,
   getNextOnboardingStep,

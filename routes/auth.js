@@ -2,9 +2,13 @@
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const { User } = require('../models');
+const { Studio, User } = require('../models');
 const { authenticateToken } = require('../middleware/auth');
 const { buildAuthPayload, signAuthToken } = require('../utils/authToken');
+const {
+  normalizeStudioCode,
+  isValidStudioCode,
+} = require('../models/studioMetadata');
 
 const router = express.Router();
 
@@ -21,10 +25,30 @@ router.post('/login', async (req, res) => {
   console.log('[AUTH BACKEND] method:', req.method);
   console.log('[AUTH BACKEND] origin:', req.headers.origin);
   const { username, password } = req.body;
+  const hasStudioCode = req.body && Object.prototype.hasOwnProperty.call(req.body, 'studioCode');
   try {
     // Log which database file is being used
     console.log('DB file:', require('path').resolve(__dirname, '../database.sqlite'));
-    const user = await User.findOne({ where: { username } });
+    let resolvedStudioCode = 'yogatha';
+    if (hasStudioCode) {
+      if (typeof req.body.studioCode !== 'string') {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      resolvedStudioCode = normalizeStudioCode(req.body.studioCode);
+      if (!isValidStudioCode(resolvedStudioCode)) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+    } else {
+      // Temporary saas compatibility: legacy YogaTha clients still omit studioCode.
+    }
+
+    const studio = await Studio.findOne({ where: { studioCode: resolvedStudioCode } });
+    if (!studio) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = await User.findOne({ where: { studioId: studio.id, username } });
     console.log('User exists:', !!user);
     if (user) {
       console.log('Stored username:', user.username);
@@ -45,6 +69,7 @@ router.post('/login', async (req, res) => {
       assignedSalonIds: payload.assignedSalonIds,
       permissions: payload.permissions,
       studioId: payload.studioId,
+      studioCode: studio.studioCode,
     });
   } catch (err) {
     console.error('Login error:', err);

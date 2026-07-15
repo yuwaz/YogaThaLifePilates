@@ -72,6 +72,7 @@ const ensureMemberMeasurementsTable = require('./ensureMemberMeasurementsTable')
 const ensureInstructorPayoutAndSessionTypeColumns = require('./ensureInstructorPayoutAndSessionTypeColumns');
 const ensureManualCardUsagesTable = require('./ensureManualCardUsagesTable');
 const ensureStudiosTable = require('./ensureStudiosTable');
+const ensureStudioCodeColumn = require('./ensureStudioCodeColumn');
 const ensureStudioOnboardingColumns = require('./ensureStudioOnboardingColumns');
 const ensureUserStudioIdColumn = require('./ensureUserStudioIdColumn');
 const ensureMemberStudioIdColumn = require('./ensureMemberStudioIdColumn');
@@ -89,6 +90,7 @@ const ensureMemberMeasurementStudioIdColumn = require('./ensureMemberMeasurement
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
+  await ensureStudioCodeColumn();
   await ensureStudioOnboardingColumns();
   await ensureUserStudioIdColumn();
   await ensureMemberStudioIdColumn();

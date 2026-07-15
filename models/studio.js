@@ -5,7 +5,9 @@ const {
   ONBOARDING_STEPS,
   SUBSCRIPTION_STATUSES,
   normalizeUppercaseCode,
+  normalizeStudioCode,
   isSupportedCountryCode,
+  isValidStudioCode,
   isValidIanaTimezone,
 } = require('./studioMetadata');
 
@@ -19,6 +21,23 @@ module.exports = (sequelize) => {
     name: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+    studioCode: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+      set(value) {
+        this.setDataValue('studioCode', normalizeStudioCode(value));
+      },
+      validate: {
+        len: [3, 40],
+        is: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        isValidStudioCode(value) {
+          if (!isValidStudioCode(value)) {
+            throw new Error('Invalid studio code');
+          }
+        },
+      },
     },
     email: {
       type: DataTypes.STRING,

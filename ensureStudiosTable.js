@@ -15,6 +15,7 @@ async function ensureStudiosTable() {
       CREATE TABLE Studios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name VARCHAR(255) NOT NULL,
+        studioCode VARCHAR(40) NOT NULL UNIQUE,
         email VARCHAR(255) NULL,
         phone VARCHAR(255) NULL,
         country VARCHAR(2) NOT NULL,
@@ -43,6 +44,7 @@ async function ensureStudiosTable() {
       INSERT INTO Studios (
         id,
         name,
+        studioCode,
         email,
         phone,
         country,
@@ -52,12 +54,13 @@ async function ensureStudiosTable() {
         trialEndsAt,
         createdAt,
         updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `,
     {
       replacements: [
         1,
         'YogaTha Pilates',
+        'yogatha',
         null,
         null,
         'TR',
