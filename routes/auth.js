@@ -2,12 +2,11 @@
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { authenticateToken } = require('../middleware/auth');
+const { buildAuthPayload, signAuthToken } = require('../utils/authToken');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
 // Apply CORS to all /auth routes (in addition to global)
 router.use(cors({
@@ -35,30 +34,17 @@ router.post('/login', async (req, res) => {
     console.log('bcrypt.compare result:', valid);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Use permissions from DB, not permissions.js
-    let permissions = user.permissions;
-    if (typeof permissions === 'string') {
-      try { permissions = JSON.parse(permissions); } catch { permissions = []; }
-    }
-    if (!Array.isArray(permissions)) permissions = [];
-    console.log('[Auth] DB permissions:', permissions);
-    let assignedSalonIds = user.assignedSalonIds;
-    if (typeof assignedSalonIds === 'string') {
-      try { assignedSalonIds = JSON.parse(assignedSalonIds); } catch { assignedSalonIds = []; }
-    }
-    const normalizedStudioId = Number.isInteger(Number(user.studioId)) && Number(user.studioId) > 0
-      ? Number(user.studioId)
-      : 1;
-    const payload = { id: user.id, role: user.role, assignedSalonIds, permissions, studioId: normalizedStudioId };
-    console.log('[Auth] JWT permissions:', permissions);
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
-    console.log('[Auth] response permissions:', permissions);
+    const payload = buildAuthPayload(user);
+    console.log('[Auth] DB permissions:', payload.permissions);
+    console.log('[Auth] JWT permissions:', payload.permissions);
+    const token = signAuthToken(payload);
+    console.log('[Auth] response permissions:', payload.permissions);
     res.json({
       token,
-      role: user.role,
-      assignedSalonIds,
-      permissions,
-      studioId: normalizedStudioId,
+      role: payload.role,
+      assignedSalonIds: payload.assignedSalonIds,
+      permissions: payload.permissions,
+      studioId: payload.studioId,
     });
   } catch (err) {
     console.error('Login error:', err);

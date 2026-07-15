@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const { sequelize, Studio, User } = require('../models');
+const { buildAuthPayload, signAuthToken } = require('../utils/authToken');
 
 exports.registerStudio = async (req, res) => {
   const requiredFields = [
@@ -36,9 +37,16 @@ exports.registerStudio = async (req, res) => {
     ? req.body.email.trim()
     : null;
 
+  let createdStudio;
+  let createdUser;
+
   try {
     await sequelize.transaction(async (t) => {
-      const studio = await Studio.create({
+      const now = new Date();
+      const trialEndsAt = new Date(now);
+      trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + 7);
+
+      createdStudio = await Studio.create({
         name: studioName,
         country,
         currency,
@@ -46,12 +54,12 @@ exports.registerStudio = async (req, res) => {
         phone,
         email,
         subscriptionStatus: 'trial',
-        trialEndsAt: null,
+        trialEndsAt,
       }, { transaction: t });
 
       const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
-      await User.create({
+      createdUser = await User.create({
         username: adminUsername,
         password: hashedPassword,
         role: 'admin',
@@ -59,15 +67,42 @@ exports.registerStudio = async (req, res) => {
         permissions: [],
         groupSessionFee: 0,
         individualSessionFee: 0,
-        studioId: studio.id,
+        studioId: createdStudio.id,
       }, { transaction: t });
     });
-
-    return res.status(201).json({ message: 'Studio registered successfully' });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: 'Validation error' });
     }
+    return res.status(500).json({ error: 'Server error' });
+  }
+
+  try {
+    const payload = buildAuthPayload(createdUser);
+    const token = signAuthToken(payload);
+
+    return res.status(201).json({
+      message: 'Studio registered successfully',
+      token,
+      user: {
+        id: createdUser.id,
+        username: createdUser.username,
+        role: payload.role,
+        assignedSalonIds: payload.assignedSalonIds,
+        permissions: payload.permissions,
+        studioId: payload.studioId,
+      },
+      studio: {
+        id: createdStudio.id,
+        name: createdStudio.name,
+        country: createdStudio.country,
+        currency: createdStudio.currency,
+        timezone: createdStudio.timezone,
+        subscriptionStatus: createdStudio.subscriptionStatus,
+        trialEndsAt: createdStudio.trialEndsAt,
+      },
+    });
+  } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
 };
