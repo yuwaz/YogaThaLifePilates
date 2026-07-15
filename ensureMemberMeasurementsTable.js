@@ -65,10 +65,17 @@ async function ensureMemberMeasurementsTable() {
         bodyFatPercentage DECIMAL(10,2) NULL,
         notes TEXT NULL,
         createdByUserId INTEGER NULL,
+        studioId INTEGER NOT NULL DEFAULT 1,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
     `);
+  }
+
+  const columns = await getTableColumns('MemberMeasurements');
+  if (!columns.includes('studioId')) {
+    await sequelize.query('ALTER TABLE MemberMeasurements ADD COLUMN studioId INTEGER NOT NULL DEFAULT 1;');
+    console.log('[DB MIGRATION] Added studioId column to MemberMeasurements');
   }
 
   await createIndexIfColumnExists('MemberMeasurements', 'memberId', 'idx_member_measurements_member_id');
