@@ -33,6 +33,13 @@ const ONBOARDING_STEPS = Object.freeze([
   'completed',
 ]);
 
+const ONBOARDING_STEP_INDEX = Object.freeze(
+  ONBOARDING_STEPS.reduce((acc, step, index) => {
+    acc[step] = index;
+    return acc;
+  }, {})
+);
+
 function normalizeUppercaseCode(value) {
   if (typeof value !== 'string') {
     return value;
@@ -57,6 +64,27 @@ function isSupportedOnboardingStep(value) {
   return ONBOARDING_STEPS.includes(value);
 }
 
+function getOnboardingStepIndex(value) {
+  if (!Object.prototype.hasOwnProperty.call(ONBOARDING_STEP_INDEX, value)) {
+    return -1;
+  }
+
+  return ONBOARDING_STEP_INDEX[value];
+}
+
+function getNextOnboardingStep(value) {
+  const currentIndex = getOnboardingStepIndex(value);
+  if (currentIndex < 0) {
+    return null;
+  }
+
+  if (currentIndex >= ONBOARDING_STEPS.length - 1) {
+    return null;
+  }
+
+  return ONBOARDING_STEPS[currentIndex + 1];
+}
+
 function isValidIanaTimezone(value) {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return false;
@@ -75,10 +103,13 @@ module.exports = {
   SUPPORTED_CURRENCIES,
   SUBSCRIPTION_STATUSES,
   ONBOARDING_STEPS,
+  ONBOARDING_STEP_INDEX,
   normalizeUppercaseCode,
   isSupportedCountryCode,
   isSupportedCurrency,
   isSupportedSubscriptionStatus,
   isSupportedOnboardingStep,
+  getOnboardingStepIndex,
+  getNextOnboardingStep,
   isValidIanaTimezone,
 };

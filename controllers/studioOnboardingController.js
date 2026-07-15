@@ -1,5 +1,21 @@
 const { Studio } = require('../models');
-const { ONBOARDING_STEPS } = require('../models/studioMetadata');
+const {
+  isSupportedOnboardingStep,
+  getNextOnboardingStep,
+} = require('../models/studioMetadata');
+const { validateOnboardingTransitionRequirements } = require('../services/onboardingRequirements');
+
+function hasForbiddenStudioSelector(req) {
+  const hasBodyStudioId = req.body && Object.prototype.hasOwnProperty.call(req.body, 'studioId');
+  const hasQueryStudioId = req.query && Object.prototype.hasOwnProperty.call(req.query, 'studioId');
+  const hasParamStudioId = req.params && Object.prototype.hasOwnProperty.call(req.params, 'studioId');
+  const headers = req.headers || {};
+  const hasHeaderStudioId = Object.prototype.hasOwnProperty.call(headers, 'studioid')
+    || Object.prototype.hasOwnProperty.call(headers, 'studio-id')
+    || Object.prototype.hasOwnProperty.call(headers, 'x-studio-id');
+
+  return hasBodyStudioId || hasQueryStudioId || hasParamStudioId || hasHeaderStudioId;
+}
 
 function toOnboardingResponse(studio) {
   return {
@@ -31,7 +47,11 @@ exports.getStudioOnboarding = async (req, res) => {
 
 exports.updateStudioOnboarding = async (req, res) => {
   try {
-    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'studioId')) {
+    if (hasForbiddenStudioSelector(req)) {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
+
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'onboardingCompleted')) {
       return res.status(400).json({ error: 'Invalid field types' });
     }
 
@@ -39,55 +59,52 @@ exports.updateStudioOnboarding = async (req, res) => {
     if (!studio) return res.status(404).json({ error: 'Not found' });
 
     const hasStep = req.body && Object.prototype.hasOwnProperty.call(req.body, 'onboardingStep');
-    const hasCompleted = req.body && Object.prototype.hasOwnProperty.call(req.body, 'onboardingCompleted');
-
-    if (!hasStep && !hasCompleted) {
+    if (!hasStep) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    let nextStep = studio.onboardingStep;
-    let nextCompleted = Boolean(studio.onboardingCompleted);
-
-    if (hasStep) {
-      if (typeof req.body.onboardingStep !== 'string') {
-        return res.status(400).json({ error: 'Invalid field types' });
-      }
-      const normalizedStep = req.body.onboardingStep.trim();
-      if (!ONBOARDING_STEPS.includes(normalizedStep)) {
-        return res.status(400).json({ error: 'Invalid field types' });
-      }
-      nextStep = normalizedStep;
-    }
-
-    if (hasCompleted) {
-      if (typeof req.body.onboardingCompleted !== 'boolean') {
-        return res.status(400).json({ error: 'Invalid field types' });
-      }
-      nextCompleted = req.body.onboardingCompleted;
-    }
-
-    const isCurrentlyCompleted = Boolean(studio.onboardingCompleted) || studio.onboardingStep === 'completed';
-    if (isCurrentlyCompleted) {
-      if ((hasCompleted && req.body.onboardingCompleted === false) || (hasStep && nextStep !== 'completed')) {
-        return res.status(400).json({ error: 'Invalid field types' });
-      }
-    }
-
-    if (hasCompleted && req.body.onboardingCompleted === true) {
-      nextStep = 'completed';
-      nextCompleted = true;
-    }
-
-    if (hasStep && nextStep === 'completed') {
-      nextCompleted = true;
-    }
-
-    if (hasCompleted && req.body.onboardingCompleted === false && hasStep && nextStep === 'completed') {
+    if (typeof req.body.onboardingStep !== 'string') {
       return res.status(400).json({ error: 'Invalid field types' });
     }
 
-    studio.onboardingCompleted = nextCompleted;
-    studio.onboardingStep = nextStep;
+    const requestedStep = req.body.onboardingStep.trim();
+    if (!isSupportedOnboardingStep(requestedStep)) {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
+
+    const currentStep = studio.onboardingStep;
+    if (!isSupportedOnboardingStep(currentStep)) {
+      return res.status(500).json({ error: 'Server error' });
+    }
+
+    const isCurrentCompleted = currentStep === 'completed' || Boolean(studio.onboardingCompleted);
+    if (isCurrentCompleted) {
+      if (requestedStep !== 'completed') {
+        return res.status(400).json({ error: 'Invalid field types' });
+      }
+    } else if (requestedStep !== currentStep) {
+      const nextStep = getNextOnboardingStep(currentStep);
+      if (requestedStep !== nextStep) {
+        return res.status(400).json({ error: 'Invalid field types' });
+      }
+
+      const requirementResult = await validateOnboardingTransitionRequirements({
+        studioId: studio.id,
+        currentStep,
+        requestedStep,
+      });
+
+      if (!requirementResult.ok) {
+        return res.status(400).json({
+          error: 'Onboarding requirement not met',
+          requiredStep: requirementResult.requiredStep,
+          missingRequirement: requirementResult.missingRequirement,
+        });
+      }
+    }
+
+    studio.onboardingStep = requestedStep;
+    studio.onboardingCompleted = requestedStep === 'completed';
     await studio.save();
 
     return res.json(toOnboardingResponse(studio));
