@@ -95,12 +95,12 @@ const PORT = process.env.PORT || 3000;
   await ensureReservationStudioIdColumn();
   await ensureAttendanceStudioIdColumn();
   await ensureMemberLessonPackageStudioIdColumn();
+  await ensureManualCardUsagesTable();
   await ensureMemberSoftDeleteColumns();
   await ensureAttendanceReservationColumn();
   await ensureAttendanceInstructorColumn();
   await ensureMemberMeasurementsTable();
   await ensureInstructorPayoutAndSessionTypeColumns();
-  await ensureManualCardUsagesTable();
   await sequelize.sync();
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
