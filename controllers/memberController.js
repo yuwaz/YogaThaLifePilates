@@ -53,7 +53,7 @@ exports.restoreMember = async (req, res) => {
     return res.status(500).json({ message: 'Failed to reactivate member', error: err.message });
   }
 };
-const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
+const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, PaymentMethod, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
@@ -549,13 +549,16 @@ exports.addLessonPackage = async (req, res) => {
 exports.addPayment = async (req, res) => {
   try {
     const { amount, paymentMethodId, date } = req.body;
+    const studioId = getAuthenticatedStudioId(req);
     if (!amount || !paymentMethodId || !date) return res.status(400).json({ error: 'Missing required fields' });
     if (isNaN(amount) || Number(amount) < 0) return res.status(400).json({ error: 'Amount must be a non-negative number' });
     const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
+    const paymentMethod = await PaymentMethod.findOne({ where: { id: paymentMethodId, studioId } });
+    if (!paymentMethod) return res.sendStatus(404);
     const newDebt = Number(member.totalDebt) - Number(amount);
     if (newDebt < 0) return res.status(400).json({ error: 'totalDebt cannot be negative' });
-    const payment = await Payment.create({ memberId: member.id, amount, paymentMethodId, date });
+    const payment = await Payment.create({ memberId: member.id, amount, paymentMethodId, date, studioId });
     member.totalDebt = newDebt;
     await member.save();
     res.status(201).json(payment);
@@ -596,7 +599,8 @@ function combineDateAndTime(dateOnly, reservationTime) {
   return `${dateOnly} ${normalizedTime}`;
 }
 
-async function findReservationMatch(memberId, attendanceDate) {
+async function findReservationMatch(memberId, attendanceDate, options = {}) {
+  const { studioId, salonId } = options;
   const localDate = toLocalDateString(attendanceDate);
   if (!localDate) {
     return { kind: 'invalid-date' };
@@ -606,6 +610,8 @@ async function findReservationMatch(memberId, attendanceDate) {
     where: {
       memberId,
       date: localDate,
+      studioId,
+      ...(salonId !== undefined ? { salonId } : {}),
     },
     attributes: ['id', 'date', 'time'],
     limit: 2,
@@ -627,12 +633,13 @@ async function findReservationMatch(memberId, attendanceDate) {
 exports.addAttendance = async (req, res) => {
   try {
     const { salonId, date } = req.body;
+    const studioId = getAuthenticatedStudioId(req);
     const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
     if (!salonId || !date) return res.status(400).json({ error: 'Missing required fields' });
     const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
 
-    const reservationMatch = await findReservationMatch(member.id, date);
+    const reservationMatch = await findReservationMatch(member.id, date, { studioId, salonId: Number(salonId) });
     if (reservationMatch.kind === 'invalid-date') {
       return res.status(400).json({ error: 'Invalid attendance date' });
     }
@@ -658,6 +665,7 @@ exports.addAttendance = async (req, res) => {
       date: attendanceDateTime,
       reservationId: reservationMatch.reservationId,
       instructorId,
+      studioId,
     });
     member.remainingLessons = Number(member.remainingLessons) - 1;
     await member.save();
