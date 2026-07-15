@@ -1,4 +1,5 @@
 const { MemberType, Member } = require('../models');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 exports.createMemberType = async (req, res) => {
   try {
@@ -19,20 +20,21 @@ exports.createMemberType = async (req, res) => {
       isCardBased: !!isCardBased,
       cardUsageFee: isCardBased ? Number(cardUsageFee) : 0,
       sessionType: sessionType === undefined ? 'group' : sessionType,
+      studioId: getAuthenticatedStudioId(req),
     });
     res.status(201).json(memberType);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 };
 
 exports.getMemberTypes = async (req, res) => {
-  const memberTypes = await MemberType.findAll();
+  const memberTypes = await MemberType.findAll({ where: withStudioWhere(req, {}) });
   res.json(memberTypes);
 };
 
 exports.getMemberType = async (req, res) => {
-  const memberType = await MemberType.findByPk(req.params.id);
+  const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
   if (!memberType) return res.sendStatus(404);
   res.json(memberType);
 };
@@ -40,7 +42,7 @@ exports.getMemberType = async (req, res) => {
 exports.updateMemberType = async (req, res) => {
   try {
     const { name, color, isCardBased, cardUsageFee, sessionType } = req.body;
-    const memberType = await MemberType.findByPk(req.params.id);
+    const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!memberType) return res.sendStatus(404);
     if (name) memberType.name = name;
     if (color) memberType.color = color;
@@ -60,15 +62,15 @@ exports.updateMemberType = async (req, res) => {
     await memberType.save();
     res.json(memberType);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 };
 
 exports.deleteMemberType = async (req, res) => {
-  const memberType = await MemberType.findByPk(req.params.id);
+  const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
   if (!memberType) return res.sendStatus(404);
 
-  const memberCount = await Member.count({ where: { memberTypeId: memberType.id } });
+  const memberCount = await Member.count({ where: withStudioWhere(req, { memberTypeId: memberType.id }) });
   if (memberCount > 0) {
     return res.status(400).json({
       error: 'This member type cannot be deleted because it is currently assigned to one or more members.',
