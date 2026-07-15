@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { Expense, Salon, PaymentMethod } = require('../models');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 function validateRequiredFields(body) {
   const { salonId, title, amount, category, date } = body;
@@ -9,7 +10,7 @@ function validateRequiredFields(body) {
 exports.getExpenses = async (req, res) => {
   try {
     const { salonId, startDate, endDate, category, paymentMethodId } = req.query;
-    const where = {};
+    const where = withStudioWhere(req, {});
 
     if (salonId !== undefined) where.salonId = Number(salonId);
     if (category) where.category = category;
@@ -38,7 +39,7 @@ exports.getExpenses = async (req, res) => {
 
 exports.getExpense = async (req, res) => {
   try {
-    const expense = await Expense.findByPk(req.params.id, {
+    const expense = await Expense.findOne({ where: withStudioWhere(req, { id: req.params.id }),
       include: [
         { model: Salon, attributes: ['id', 'name', 'type'] },
         { model: PaymentMethod, attributes: ['id', 'name'] },
@@ -59,6 +60,13 @@ exports.createExpense = async (req, res) => {
     }
 
     const { salonId, title, description, amount, category, date, paymentMethodId, notes } = req.body;
+    const studioId = getAuthenticatedStudioId(req);
+    const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
+    if (!salon) return res.status(404).json({ message: 'Expense not found' });
+    if (paymentMethodId !== undefined && paymentMethodId !== null) {
+      const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
+      if (!paymentMethod) return res.status(404).json({ message: 'Expense not found' });
+    }
     const expense = await Expense.create({
       salonId,
       title,
@@ -68,6 +76,7 @@ exports.createExpense = async (req, res) => {
       date,
       paymentMethodId: paymentMethodId ?? null,
       notes,
+      studioId,
     });
 
     res.status(201).json(expense);
@@ -82,10 +91,16 @@ exports.updateExpense = async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const expense = await Expense.findByPk(req.params.id);
+    const expense = await Expense.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!expense) return res.status(404).json({ message: 'Expense not found' });
 
     const { salonId, title, description, amount, category, date, paymentMethodId, notes } = req.body;
+    const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
+    if (!salon) return res.status(404).json({ message: 'Expense not found' });
+    if (paymentMethodId !== undefined && paymentMethodId !== null) {
+      const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
+      if (!paymentMethod) return res.status(404).json({ message: 'Expense not found' });
+    }
     expense.salonId = salonId;
     expense.title = title;
     expense.description = description;
@@ -104,7 +119,7 @@ exports.updateExpense = async (req, res) => {
 
 exports.deleteExpense = async (req, res) => {
   try {
-    const expense = await Expense.findByPk(req.params.id);
+    const expense = await Expense.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!expense) return res.status(404).json({ message: 'Expense not found' });
 
     await expense.destroy();

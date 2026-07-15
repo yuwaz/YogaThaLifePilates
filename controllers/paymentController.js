@@ -1,10 +1,12 @@
 const { Payment, Member, PaymentMethod } = require('../models');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 // GET /settings/payments
 exports.getPayments = async (req, res) => {
   try {
     console.log('GET /settings/payments hit');
     const payments = await Payment.findAll({
+      where: withStudioWhere(req, {}),
       include: [
         { model: Member, attributes: ['id', 'name'] },
         { model: PaymentMethod, attributes: ['id', 'name'] }
@@ -22,12 +24,15 @@ exports.createPayment = async (req, res) => {
   try {
     console.log('POST /settings/payments hit');
     const { memberId, amount, paymentMethodId, date } = req.body;
+    const studioId = getAuthenticatedStudioId(req);
     if (!memberId || !amount || !paymentMethodId || !date) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
-    const member = await Member.findByPk(memberId);
-    if (!member) return res.status(404).json({ message: 'Member not found' });
-    const payment = await Payment.create({ memberId, amount, paymentMethodId, date });
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
+    if (!member) return res.status(404).json({ message: 'Payment not found' });
+    const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
+    if (!paymentMethod) return res.status(404).json({ message: 'Payment not found' });
+    const payment = await Payment.create({ memberId, amount, paymentMethodId, date, studioId });
     member.totalDebt = Number(member.totalDebt) - Number(amount);
     await member.save();
     res.status(201).json(payment);
@@ -42,7 +47,7 @@ exports.updatePayment = async (req, res) => {
   try {
     console.log('PUT /settings/payments/:id hit');
     const { amount, paymentMethodId, date } = req.body;
-    const payment = await Payment.findByPk(req.params.id);
+    const payment = await Payment.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!payment) return res.status(404).json({ message: 'Payment not found' });
 
     // Save old amount for debt adjustment
@@ -52,12 +57,16 @@ exports.updatePayment = async (req, res) => {
       payment.amount = amount;
       newAmount = parseFloat(amount);
     }
-    if (paymentMethodId !== undefined) payment.paymentMethodId = paymentMethodId;
+    if (paymentMethodId !== undefined) {
+      const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
+      if (!paymentMethod) return res.status(404).json({ message: 'Payment not found' });
+      payment.paymentMethodId = paymentMethodId;
+    }
     if (date !== undefined) payment.date = date;
     await payment.save();
 
     // Adjust member's totalDebt by the difference
-    const member = await Member.findByPk(payment.memberId);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: payment.memberId }) });
     if (member) {
       // Formula: member.totalDebt = member.totalDebt - (newAmount - oldAmount)
       member.totalDebt = parseFloat(member.totalDebt) - (newAmount - oldAmount);
@@ -75,7 +84,7 @@ exports.updatePayment = async (req, res) => {
 exports.deletePayment = async (req, res) => {
   try {
     console.log('DELETE /settings/payments/:id hit');
-    const payment = await Payment.findByPk(req.params.id);
+    const payment = await Payment.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!payment) return res.status(404).json({ message: 'Payment not found' });
 
     // Store memberId and amount before deleting
@@ -85,7 +94,7 @@ exports.deletePayment = async (req, res) => {
     await payment.destroy();
 
     // After deleting, load member and restore debt
-    const member = await Member.findByPk(memberId);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
     if (!member) return res.status(404).json({ message: 'Member not found' });
     member.totalDebt = parseFloat(member.totalDebt) + amount;
     await member.save();
