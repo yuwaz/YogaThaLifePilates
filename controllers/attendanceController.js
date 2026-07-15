@@ -1,4 +1,5 @@
-const { Attendance, Member, MemberType, Reservation } = require('../models');
+const { Attendance, Member, MemberType, Reservation, Salon } = require('../models');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 const LOCAL_TIMEZONE = 'Europe/Istanbul';
 
@@ -31,7 +32,8 @@ function combineDateAndTime(dateOnly, reservationTime) {
   return `${dateOnly} ${normalizedTime}`;
 }
 
-async function findReservationMatch(memberId, attendanceDate) {
+async function findReservationMatch(memberId, attendanceDate, options = {}) {
+  const { studioId, salonId } = options;
   const localDate = toLocalDateString(attendanceDate);
   if (!localDate) {
     return { kind: 'invalid-date' };
@@ -41,6 +43,8 @@ async function findReservationMatch(memberId, attendanceDate) {
     where: {
       memberId,
       date: localDate,
+      studioId,
+      ...(salonId !== undefined ? { salonId } : {}),
     },
     attributes: ['id', 'date', 'time'],
     limit: 2,
@@ -68,7 +72,7 @@ exports.getAttendance = async (req, res) => {
       where.salonId = req.query.assignedSalonIds;
     }
     const attendanceList = await Attendance.findAll({
-      where,
+      where: withStudioWhere(req, where),
       order: [['date', 'DESC']],
     });
     res.json(attendanceList);
@@ -80,18 +84,22 @@ exports.getAttendance = async (req, res) => {
 exports.addAttendance = async (req, res) => {
   try {
     const { memberId, salonId, date } = req.body;
+    const studioId = getAuthenticatedStudioId(req);
     const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
 
     if (!memberId || !salonId || !date) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const member = await Member.findOne({ where: { id: memberId, isActive: true } });
+    const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
+    if (!salon) return res.sendStatus(404);
+
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId, isActive: true }) });
     if (!member) {
-      return res.status(404).json({ error: 'Member not found or inactive' });
+      return res.sendStatus(404);
     }
 
-    const reservationMatch = await findReservationMatch(memberId, date);
+    const reservationMatch = await findReservationMatch(memberId, date, { studioId, salonId: Number(salonId) });
     if (reservationMatch.kind === 'invalid-date') {
       return res.status(400).json({ error: 'Invalid attendance date' });
     }
@@ -111,7 +119,7 @@ exports.addAttendance = async (req, res) => {
     }
 
     // Load MemberType for card-based logic
-    const memberType = await MemberType.findByPk(member.memberTypeId);
+    const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: member.memberTypeId }) });
     if (!memberType) {
       return res.status(400).json({ error: 'Member type not found' });
     }
@@ -124,6 +132,7 @@ exports.addAttendance = async (req, res) => {
         date: attendanceDateTime,
         reservationId: reservationMatch.reservationId,
         instructorId,
+        studioId,
       });
       return res.status(201).json(attendance);
     } else {
@@ -137,6 +146,7 @@ exports.addAttendance = async (req, res) => {
         date: attendanceDateTime,
         reservationId: reservationMatch.reservationId,
         instructorId,
+        studioId,
       });
       member.remainingLessons = Number(member.remainingLessons) - 1;
       await member.save();
@@ -149,7 +159,8 @@ exports.addAttendance = async (req, res) => {
 
 exports.updateAttendance = async (req, res) => {
   try {
-    const attendance = await Attendance.findByPk(req.params.id);
+    const studioId = getAuthenticatedStudioId(req);
+    const attendance = await Attendance.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!attendance) {
       return res.sendStatus(404);
     }
@@ -160,12 +171,18 @@ exports.updateAttendance = async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
+    if (!salon) {
+      return res.sendStatus(404);
+    }
+
     const nextMemberId = memberId !== undefined ? Number(memberId) : attendance.memberId;
     if (Number.isNaN(nextMemberId)) {
       return res.status(400).json({ error: 'Invalid memberId' });
     }
 
     const nextDate = date !== undefined ? date : attendance.date;
+    const nextSalonId = Number(salonId);
     const currentLocalDate = toLocalDateString(attendance.date);
     const nextLocalDate = toLocalDateString(nextDate);
     if (!nextLocalDate) {
@@ -174,16 +191,17 @@ exports.updateAttendance = async (req, res) => {
 
     const memberChanged = nextMemberId !== attendance.memberId;
     if (memberChanged) {
-      const member = await Member.findOne({ where: { id: nextMemberId, isActive: true } });
+      const member = await Member.findOne({ where: withStudioWhere(req, { id: nextMemberId, isActive: true }) });
       if (!member) {
-        return res.status(404).json({ error: 'Member not found or inactive' });
+        return res.sendStatus(404);
       }
     }
 
     const dateChanged = currentLocalDate !== nextLocalDate;
+    const salonChanged = nextSalonId !== Number(attendance.salonId);
     let nextAttendanceDate = attendance.date;
-    if (memberChanged || dateChanged) {
-      const reservationMatch = await findReservationMatch(nextMemberId, nextDate);
+    if (memberChanged || dateChanged || salonChanged) {
+      const reservationMatch = await findReservationMatch(nextMemberId, nextDate, { studioId, salonId: nextSalonId });
       if (reservationMatch.kind === 'none') {
         return res.status(400).json({ error: 'Bu üyenin seçilen tarihte rezervasyonu bulunamadı' });
       }
@@ -207,7 +225,7 @@ exports.updateAttendance = async (req, res) => {
 
     attendance.memberId = nextMemberId;
     attendance.date = nextAttendanceDate;
-    attendance.salonId = salonId;
+  attendance.salonId = salonId;
     await attendance.save();
 
     res.json(attendance);
@@ -218,15 +236,15 @@ exports.updateAttendance = async (req, res) => {
 
 exports.deleteAttendance = async (req, res) => {
   try {
-    const attendance = await Attendance.findByPk(req.params.id);
+    const attendance = await Attendance.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!attendance) {
       return res.sendStatus(404);
     }
 
-    const member = await Member.findByPk(attendance.memberId);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: attendance.memberId }) });
     if (member) {
       // Load MemberType for card-based logic
-      const memberType = await MemberType.findByPk(member.memberTypeId);
+      const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: member.memberTypeId }) });
       if (memberType && memberType.isCardBased) {
         // Card-based: just delete attendance, do not increment remainingLessons
         await attendance.destroy();

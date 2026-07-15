@@ -2,8 +2,9 @@ exports.updateReservation = async (req, res) => {
   try {
     const { memberId, equipmentId, salonId, date, time, repeatWeekly, updateScope } = req.body;
     const id = req.params.id;
+    const studioId = getAuthenticatedStudioId(req);
     // Debug logs
-    const reservation = await Reservation.findByPk(id);
+    const reservation = await Reservation.findOne({ where: withStudioWhere(req, { id }) });
     console.log('[Reservation Update] id', id);
     console.log('[Reservation Update] updateScope', updateScope);
     console.log('[Reservation Update] repeatWeekly', repeatWeekly);
@@ -20,10 +21,21 @@ exports.updateReservation = async (req, res) => {
     }
     if (!reservation) return res.sendStatus(404);
 
+    const salon = await findScopedSalon(req, salonId);
+    if (!salon) return res.sendStatus(404);
+    const equipment = await findScopedEquipment(req, equipmentId);
+    if (!equipment) return res.sendStatus(404);
+    if (equipment.salonId !== Number(salonId)) return res.status(400).json({ error: 'Equipment does not belong to this salon' });
+    if (!['Mat', 'Reformer'].includes(equipment.type)) return res.status(400).json({ error: 'Invalid equipment type' });
+    const member = await findScopedMember(req, memberId, { requireActive: true });
+    if (!member) return res.sendStatus(404);
+    if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
+
     // If single reservation and repeatWeekly === true, convert to weekly recurring
     if (!reservation.recurrenceGroupId && repeatWeekly === true) {
       const hasDuplicateSelectedDate = await hasMemberDateReservation(memberId, date, {
         excludeReservationId: reservation.id,
+        studioId,
       });
       if (hasDuplicateSelectedDate) {
         return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
@@ -55,15 +67,16 @@ exports.updateReservation = async (req, res) => {
       // Check for conflicts for all future dates
       for (const d of reservationDates) {
         const dStr = d.toISOString().slice(0, 10);
-        const hasDuplicateDate = await hasMemberDateReservation(memberId, dStr);
+        const hasDuplicateDate = await hasMemberDateReservation(memberId, dStr, { studioId });
+        
         if (hasDuplicateDate) {
           return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
         }
-        const equipmentOverlap = await hasEquipmentOverlap(equipmentId, dStr, time);
+        const equipmentOverlap = await hasEquipmentOverlap(equipmentId, dStr, time, { studioId });
         if (equipmentOverlap) {
           return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
         }
-        const memberOverlap = await hasMemberOverlap(memberId, dStr, time);
+        const memberOverlap = await hasMemberOverlap(memberId, dStr, time, { studioId });
         if (memberOverlap) {
           return res.status(400).json({ error: `Member already has a reservation at this time for ${dStr} ${time}` });
         }
@@ -83,13 +96,14 @@ exports.updateReservation = async (req, res) => {
             time,
             recurrenceGroupId,
             recurrenceType: 'weekly',
-            recurrenceEndDate: endDate.toISOString().slice(0, 10)
+            recurrenceEndDate: endDate.toISOString().slice(0, 10),
+            studioId,
           }, { transaction: t });
         }
       });
       // Return all created reservations for this group
       const created = await Reservation.findAll({
-        where: { recurrenceGroupId },
+        where: { recurrenceGroupId, studioId },
         include: [{
           model: Member,
           attributes: ['id', 'name', 'memberTypeId'],
@@ -102,20 +116,11 @@ exports.updateReservation = async (req, res) => {
       return res.json(created.map(formatReservation));
     }
 
-    // Validate equipment exists and belongs to salon
-    const equipment = await Equipment.findByPk(equipmentId);
-    if (!equipment) return res.status(400).json({ error: 'Equipment not found' });
-    if (equipment.salonId !== Number(salonId)) return res.status(400).json({ error: 'Equipment does not belong to this salon' });
-    if (!['Mat', 'Reformer'].includes(equipment.type)) return res.status(400).json({ error: 'Invalid equipment type' });
-    // Validate member exists and is assigned to salon
-    const member = await Member.findOne({ where: { id: memberId, isActive: true } });
-    if (!member) return res.status(400).json({ error: 'Member not found or inactive' });
-    if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
-
     // Default: update only selected reservation
     if (!updateScope || updateScope === 'single' || !reservation.recurrenceGroupId) {
       const hasDuplicateDate = await hasMemberDateReservation(memberId, date, {
         excludeReservationId: reservation.id,
+        studioId,
       });
       if (hasDuplicateDate) {
         return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
@@ -125,12 +130,13 @@ exports.updateReservation = async (req, res) => {
         excludeReservationId: reservation.id,
         preferredEquipmentId: equipmentId,
         equipmentType: equipment.type,
+        studioId,
       });
       if (!availableEquipment) {
         return res.status(409).json({ error: 'Seçilen saat için uygun ekipman bulunamadı' });
       }
 
-      const memberOverlap = await hasMemberOverlap(memberId, date, time, { excludeReservationId: reservation.id });
+      const memberOverlap = await hasMemberOverlap(memberId, date, time, { excludeReservationId: reservation.id, studioId });
       if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
       // Update reservation
       reservation.memberId = memberId;
@@ -140,7 +146,7 @@ exports.updateReservation = async (req, res) => {
       reservation.time = time;
       await reservation.save();
       // Fetch enriched reservation for response
-      const enriched = await Reservation.findByPk(reservation.id, {
+      const enriched = await Reservation.findOne({ where: { id: reservation.id, studioId },
         include: [{
           model: Member,
           attributes: ['id', 'name', 'memberTypeId'],
@@ -161,7 +167,8 @@ exports.updateReservation = async (req, res) => {
     const targetReservations = await Reservation.findAll({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
-        date: { [Op.gte]: dateStr }
+        date: { [Op.gte]: dateStr },
+        studioId,
       },
       attributes: ['id', 'date']
     });
@@ -169,18 +176,21 @@ exports.updateReservation = async (req, res) => {
     for (const target of targetReservations) {
       const hasDuplicateDate = await hasMemberDateReservation(memberId, target.date, {
         excludeRecurrenceGroupId: reservation.recurrenceGroupId,
+        studioId,
       });
       if (hasDuplicateDate) {
         return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
       }
 
       const equipmentOverlap = await hasEquipmentOverlap(equipmentId, target.date, time, {
-        excludeRecurrenceGroupId: reservation.recurrenceGroupId
+        excludeRecurrenceGroupId: reservation.recurrenceGroupId,
+        studioId,
       });
       if (equipmentOverlap) return res.status(400).json({ error: 'Slot not available' });
 
       const memberOverlap = await hasMemberOverlap(memberId, target.date, time, {
-        excludeRecurrenceGroupId: reservation.recurrenceGroupId
+        excludeRecurrenceGroupId: reservation.recurrenceGroupId,
+        studioId,
       });
       if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
     }
@@ -198,7 +208,8 @@ exports.updateReservation = async (req, res) => {
         {
           where: {
             recurrenceGroupId: reservation.recurrenceGroupId,
-            date: { [Op.gte]: dateStr }
+            date: { [Op.gte]: dateStr },
+            studioId,
           },
           transaction: t
         }
@@ -208,7 +219,8 @@ exports.updateReservation = async (req, res) => {
     const updated = await Reservation.findAll({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
-        date: { [Op.gte]: dateStr }
+        date: { [Op.gte]: dateStr },
+        studioId,
       },
       include: [{
         model: Member,
@@ -226,6 +238,7 @@ exports.updateReservation = async (req, res) => {
 };
 const { Reservation, Equipment, Salon, Member, MemberType, Attendance } = require('../models');
 const { Op } = require('sequelize');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 const FIXED_DURATION_MINUTES = 45;
 const ALLOWED_START_MINUTES = new Set([0, 15, 30, 45]);
@@ -257,9 +270,30 @@ function intervalsOverlap(existingStart, existingEnd, candidateStart, candidateE
   return existingStart < candidateEnd && existingEnd > candidateStart;
 }
 
+async function findScopedSalon(req, salonId) {
+  return Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
+}
+
+async function findScopedEquipment(req, equipmentId) {
+  return Equipment.findOne({ where: withStudioWhere(req, { id: equipmentId }) });
+}
+
+async function findScopedMember(req, memberId, options = {}) {
+  const { includeMemberType = false, requireActive = false } = options;
+  const where = withStudioWhere(req, { id: memberId });
+  if (requireActive) {
+    where.isActive = true;
+  }
+
+  return Member.findOne({
+    where,
+    include: includeMemberType ? [{ model: MemberType, attributes: ['id', 'isCardBased'] }] : undefined,
+  });
+}
+
 async function hasEquipmentOverlap(equipmentId, date, time, options = {}) {
-  const { excludeReservationId, excludeRecurrenceGroupId } = options;
-  const where = { equipmentId, date };
+  const { excludeReservationId, excludeRecurrenceGroupId, studioId } = options;
+  const where = { equipmentId, date, studioId };
   if (excludeReservationId !== undefined && excludeReservationId !== null) {
     where.id = { [Op.ne]: excludeReservationId };
   }
@@ -284,8 +318,8 @@ async function hasEquipmentOverlap(equipmentId, date, time, options = {}) {
 }
 
 async function hasMemberOverlap(memberId, date, time, options = {}) {
-  const { excludeReservationId, excludeRecurrenceGroupId } = options;
-  const where = { memberId, date };
+  const { excludeReservationId, excludeRecurrenceGroupId, studioId } = options;
+  const where = { memberId, date, studioId };
   if (excludeReservationId !== undefined && excludeReservationId !== null) {
     where.id = { [Op.ne]: excludeReservationId };
   }
@@ -313,8 +347,8 @@ async function hasMemberOverlap(memberId, date, time, options = {}) {
 }
 
 async function hasMemberDateReservation(memberId, date, options = {}) {
-  const { excludeReservationId, excludeRecurrenceGroupId } = options;
-  const where = { memberId, date };
+  const { excludeReservationId, excludeRecurrenceGroupId, studioId } = options;
+  const where = { memberId, date, studioId };
 
   if (excludeReservationId !== undefined && excludeReservationId !== null) {
     where.id = { [Op.ne]: excludeReservationId };
@@ -328,11 +362,12 @@ async function hasMemberDateReservation(memberId, date, options = {}) {
 }
 
 async function findAvailableEquipment(salonId, date, time, options = {}) {
-  const { excludeReservationId, preferredEquipmentId, equipmentType } = options;
+  const { excludeReservationId, preferredEquipmentId, equipmentType, studioId } = options;
   const equipments = await Equipment.findAll({
     where: {
       salonId: Number(salonId),
       type: equipmentType,
+      studioId,
     },
     attributes: ['id'],
     order: [['id', 'ASC']],
@@ -361,6 +396,7 @@ async function findAvailableEquipment(salonId, date, time, options = {}) {
     date,
     salonId: Number(salonId),
     equipmentId: { [Op.in]: candidateIds },
+    studioId,
   };
   if (excludeReservationId !== undefined && excludeReservationId !== null) {
     reservationWhere.id = { [Op.ne]: excludeReservationId };
@@ -417,14 +453,15 @@ function formatReservation(reservation) {
 }
 
 // Helper: check slot availability
-async function isSlotAvailable(equipmentId, date, time) {
-  const overlap = await hasEquipmentOverlap(equipmentId, date, time);
+async function isSlotAvailable(equipmentId, date, time, options = {}) {
+  const overlap = await hasEquipmentOverlap(equipmentId, date, time, options);
   return !overlap;
 }
 
 exports.createReservation = async (req, res) => {
   try {
     const { memberId, equipmentId, salonId, date, time, repeatWeekly, recurrenceEndDate } = req.body;
+    const studioId = getAuthenticatedStudioId(req);
     if (!memberId || !equipmentId || !salonId || !date || !time) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -434,34 +471,37 @@ exports.createReservation = async (req, res) => {
     if (!hasAllowedStartMinute(time)) {
       return res.status(400).json({ error: 'Invalid time. Allowed start minutes are 00, 15, 30, 45' });
     }
+    const salon = await findScopedSalon(req, salonId);
+    if (!salon) return res.sendStatus(404);
+
     // Validate equipment exists and belongs to salon
-    const equipment = await Equipment.findByPk(equipmentId);
-    if (!equipment) return res.status(400).json({ error: 'Equipment not found' });
+    const equipment = await findScopedEquipment(req, equipmentId);
+    if (!equipment) return res.sendStatus(404);
     if (equipment.salonId !== Number(salonId)) return res.status(400).json({ error: 'Equipment does not belong to this salon' });
     if (!['Mat', 'Reformer'].includes(equipment.type)) return res.status(400).json({ error: 'Invalid equipment type' });
     // Validate member exists and is assigned to salon
-    const member = await Member.findOne({ where: { id: memberId, isActive: true }, include: [{ model: MemberType, attributes: ['id', 'isCardBased'] }] });
-    if (!member) return res.status(400).json({ error: 'Member not found or inactive' });
+    const member = await findScopedMember(req, memberId, { includeMemberType: true, requireActive: true });
+    if (!member) return res.sendStatus(404);
     if (!member.assignedSalonIds.includes(Number(salonId))) return res.status(400).json({ error: 'Member not assigned to this salon' });
     // --- Remove remainingLessons check for reservation creation ---
     // --- Recurring reservation logic ---
     if (!repeatWeekly) {
       // Single reservation (legacy behavior)
-      const hasDuplicateDate = await hasMemberDateReservation(memberId, date);
+      const hasDuplicateDate = await hasMemberDateReservation(memberId, date, { studioId });
       if (hasDuplicateDate) {
         return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
       }
 
       // Check slot availability (prevent double booking)
-      const available = await isSlotAvailable(equipmentId, date, time);
+      const available = await isSlotAvailable(equipmentId, date, time, { studioId });
       if (!available) return res.status(400).json({ error: 'Slot not available' });
       // Prevent member interval overlap on same date
-      const memberOverlap = await hasMemberOverlap(memberId, date, time);
+      const memberOverlap = await hasMemberOverlap(memberId, date, time, { studioId });
       if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
       // Create reservation
-      const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time });
+      const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time, studioId });
       // Fetch enriched reservation for response
-      const enriched = await Reservation.findByPk(reservation.id, {
+      const enriched = await Reservation.findOne({ where: { id: reservation.id, studioId },
         include: [{
           model: Member,
           attributes: ['id', 'name', 'memberTypeId'],
@@ -493,15 +533,15 @@ exports.createReservation = async (req, res) => {
     // Check for conflicts for all dates
     for (const d of reservationDates) {
       const dStr = d.toISOString().slice(0, 10);
-      const hasDuplicateDate = await hasMemberDateReservation(memberId, dStr);
+      const hasDuplicateDate = await hasMemberDateReservation(memberId, dStr, { studioId });
       if (hasDuplicateDate) {
         return res.status(409).json({ error: 'Bu üyenin seçilen tarihte zaten rezervasyonu var' });
       }
-      const slotAvailable = await isSlotAvailable(equipmentId, dStr, time);
+      const slotAvailable = await isSlotAvailable(equipmentId, dStr, time, { studioId });
       if (!slotAvailable) {
         return res.status(400).json({ error: `Slot not available for ${dStr} ${time}` });
       }
-      const memberOverlap = await hasMemberOverlap(memberId, dStr, time);
+      const memberOverlap = await hasMemberOverlap(memberId, dStr, time, { studioId });
       if (memberOverlap) {
         return res.status(400).json({ error: `Member already has a reservation at this time for ${dStr} ${time}` });
       }
@@ -520,13 +560,14 @@ exports.createReservation = async (req, res) => {
           time,
           recurrenceGroupId,
           recurrenceType: 'weekly',
-          recurrenceEndDate: endDate.toISOString().slice(0, 10)
+          recurrenceEndDate: endDate.toISOString().slice(0, 10),
+          studioId,
         }, { transaction: t });
       }
     });
     // Return all created reservations for this group
     const created = await Reservation.findAll({
-      where: { recurrenceGroupId },
+      where: { recurrenceGroupId, studioId },
       include: [{
         model: Member,
         attributes: ['id', 'name', 'memberTypeId'],
@@ -574,11 +615,11 @@ exports.getReservations = async (req, res) => {
 
   console.log('[DEBUG] final reservation filter mode:', filterMode);
   const reservations = await Reservation.findAll({
-    where,
+    where: withStudioWhere(req, where),
     include: [{
       model: Member,
       attributes: ['id', 'name', 'memberTypeId', 'assignedInstructorId'],
-      where: Object.keys(memberWhere).length ? memberWhere : undefined,
+      where: withStudioWhere(req, memberWhere),
       include: [{
         model: MemberType,
         attributes: ['id', 'name', 'color']
@@ -589,7 +630,7 @@ exports.getReservations = async (req, res) => {
 };
 
 exports.getReservation = async (req, res) => {
-  const reservation = await Reservation.findByPk(req.params.id, {
+  const reservation = await Reservation.findOne({ where: withStudioWhere(req, { id: req.params.id }),
     include: [{
       model: Member,
       attributes: ['id', 'name', 'memberTypeId'],
@@ -609,7 +650,8 @@ exports.getReservation = async (req, res) => {
 
 exports.deleteReservation = async (req, res) => {
   const id = req.params.id;
-  const reservation = await Reservation.findByPk(id);
+  const studioId = getAuthenticatedStudioId(req);
+  const reservation = await Reservation.findOne({ where: withStudioWhere(req, { id }) });
   if (!reservation) return res.sendStatus(404);
   // Instructors can only delete in their assigned salons
   if (req.user.role === 'instructor' && !req.user.assignedSalonIds.includes(reservation.salonId)) {
@@ -631,7 +673,8 @@ exports.deleteReservation = async (req, res) => {
     const reservationsToDelete = await Reservation.findAll({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
-        date: { [Op.gte]: dateStr }
+        date: { [Op.gte]: dateStr },
+        studioId,
       },
       attributes: ['id']
     });
@@ -639,7 +682,8 @@ exports.deleteReservation = async (req, res) => {
     if (reservationIdsToDelete.length > 0) {
       const linkedAttendance = await Attendance.findOne({
         where: {
-          reservationId: { [Op.in]: reservationIdsToDelete }
+          reservationId: { [Op.in]: reservationIdsToDelete },
+          studioId,
         }
       });
       if (linkedAttendance) {
@@ -650,13 +694,14 @@ exports.deleteReservation = async (req, res) => {
     await Reservation.destroy({
       where: {
         recurrenceGroupId: reservation.recurrenceGroupId,
-        date: { [Op.gte]: dateStr }
+        date: { [Op.gte]: dateStr },
+        studioId,
       }
     });
     return res.sendStatus(204);
   }
 
-  const linkedAttendance = await Attendance.findOne({ where: { reservationId: reservation.id } });
+  const linkedAttendance = await Attendance.findOne({ where: { reservationId: reservation.id, studioId } });
   if (linkedAttendance) {
     return res.status(409).json({ error: 'Bu rezervasyon için yoklama alınmıştır. Önce yoklamayı siliniz.' });
   }
