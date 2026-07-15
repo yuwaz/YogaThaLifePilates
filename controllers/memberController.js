@@ -1,12 +1,14 @@
 // Delete assigned lesson package from member
 exports.deleteAssignedLessonPackage = async (req, res) => {
   const { memberId, assignedPackageId } = req.params;
-  const assignment = await MemberLessonPackage.findByPk(assignedPackageId, {
+  const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
+  if (!member) return res.sendStatus(404);
+
+  const assignment = await MemberLessonPackage.findOne({
+    where: withStudioWhere(req, { id: assignedPackageId, memberId: member.id }),
     include: [{ model: LessonPackage, attributes: ['lessonCount', 'price'] }]
   });
-  if (!assignment || assignment.memberId != memberId) return res.sendStatus(404);
-  const member = await Member.findByPk(memberId);
-  if (!member) return res.sendStatus(404);
+  if (!assignment) return res.sendStatus(404);
   // Debug logs before update
   const beforeLessons = member.remainingLessons;
   const beforeDebt = member.totalDebt;
@@ -39,7 +41,7 @@ exports.restoreMember = async (req, res) => {
       return res.status(403).json({ message: 'Only admin can reactivate members' });
     }
     const memberId = req.params.id;
-    const member = await Member.findByPk(memberId);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
     if (!member) {
       return res.status(404).json({ message: 'Member not found' });
     }
@@ -51,8 +53,9 @@ exports.restoreMember = async (req, res) => {
     return res.status(500).json({ message: 'Failed to reactivate member', error: err.message });
   }
 };
-const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation } = require('../models');
+const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
 const { Op } = require('sequelize');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 const measurementFields = ['height', 'weight', 'waist', 'hip', 'chest', 'arm', 'leg', 'shoulder', 'bodyFatPercentage'];
 
@@ -100,6 +103,70 @@ function normalizeMeasuredAtInput(value) {
   return { value: parsedDate };
 }
 
+async function validateMemberRelations(req, { memberTypeId, assignedSalonIds, assignedInstructorId }) {
+  const normalized = {};
+
+  if (memberTypeId !== undefined) {
+    const parsedMemberTypeId = Number(memberTypeId);
+    if (!Number.isInteger(parsedMemberTypeId) || parsedMemberTypeId <= 0) {
+      throw { status: 400, message: 'memberTypeId must be an integer' };
+    }
+    const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: parsedMemberTypeId }) });
+    if (!memberType) {
+      throw { status: 404, message: 'Not found' };
+    }
+    normalized.memberTypeId = parsedMemberTypeId;
+  }
+
+  if (assignedSalonIds !== undefined) {
+    if (!Array.isArray(assignedSalonIds)) {
+      throw { status: 400, message: 'assignedSalonIds must be an array' };
+    }
+
+    const parsedSalonIds = assignedSalonIds.map((value) => Number(value));
+    if (parsedSalonIds.some((value) => !Number.isInteger(value) || value <= 0)) {
+      throw { status: 404, message: 'Not found' };
+    }
+
+    const uniqueSalonIds = [...new Set(parsedSalonIds)];
+    if (uniqueSalonIds.length > 0) {
+      const salonCount = await Salon.count({
+        where: withStudioWhere(req, {
+          id: { [Op.in]: uniqueSalonIds },
+        }),
+      });
+      if (salonCount !== uniqueSalonIds.length) {
+        throw { status: 404, message: 'Not found' };
+      }
+    }
+
+    normalized.assignedSalonIds = parsedSalonIds;
+  }
+
+  if (assignedInstructorId !== undefined) {
+    if (assignedInstructorId === null) {
+      normalized.assignedInstructorId = null;
+    } else {
+      const parsedInstructorId = Number(assignedInstructorId);
+      if (!Number.isInteger(parsedInstructorId) || parsedInstructorId <= 0) {
+        throw { status: 400, message: 'assignedInstructorId must be an integer or null' };
+      }
+      const instructor = await User.findOne({
+        where: withStudioWhere(req, {
+          id: parsedInstructorId,
+          role: 'instructor',
+        }),
+      });
+      if (!instructor) {
+        throw { status: 404, message: 'Not found' };
+      }
+      normalized.assignedInstructorId = parsedInstructorId;
+    }
+  }
+
+  return normalized;
+}
+
 exports.createMember = async (req, res) => {
   try {
     const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
@@ -120,27 +187,36 @@ exports.createMember = async (req, res) => {
       return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
     }
     if (!Array.isArray(assignedSalonIds)) return res.status(400).json({ error: 'assignedSalonIds must be an array' });
-    // Prevent duplicate active members by name or phone
+    // Prevent duplicate active members by name or phone (tenant-scoped)
     const duplicate = await Member.findOne({
-      where: {
+      where: withStudioWhere(req, {
         isActive: true,
         [Op.or]: [
           { name },
           { phone: normalizedPhone }
         ]
-      }
+      })
     });
     if (duplicate) {
       return res.status(400).json({ error: 'Aynı isim veya telefon numarasıyla kayıtlı bir üye zaten var.' });
     }
-    // Minimal validation: allow null or integer for assignedInstructorId
-    let instructorId = assignedInstructorId;
-    if (instructorId !== undefined && instructorId !== null && isNaN(Number(instructorId))) {
-      return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
-    }
+    const relationValidation = await validateMemberRelations(req, {
+      memberTypeId,
+      assignedSalonIds,
+      assignedInstructorId,
+    });
+
     // Email: allow null, trim if present, else null
     const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
-    const memberPayload = { name, phone: normalizedPhone, email: safeEmail, memberTypeId, assignedSalonIds, assignedInstructorId: instructorId };
+    const memberPayload = {
+      name,
+      phone: normalizedPhone,
+      email: safeEmail,
+      memberTypeId: relationValidation.memberTypeId,
+      assignedSalonIds: relationValidation.assignedSalonIds,
+      assignedInstructorId: relationValidation.assignedInstructorId,
+      studioId: getAuthenticatedStudioId(req),
+    };
     for (const field of measurementFields) {
       const normalized = normalizeNullableDecimalField(req.body[field]);
       if (normalized.error) {
@@ -153,6 +229,9 @@ exports.createMember = async (req, res) => {
     const member = await Member.create(memberPayload);
     res.status(201).json(member);
   } catch (error) {
+    if (error && Number.isInteger(error.status)) {
+      return res.status(error.status).json({ error: error.message || 'Not found' });
+    }
     if (error.name === 'SequelizeUniqueConstraintError') {
       const field = error.errors?.[0]?.path;
       if (field === 'phone') {
@@ -191,7 +270,7 @@ exports.getMembers = async (req, res) => {
     }
     console.log('[DEBUG] final member filter mode:', filterMode);
     console.log('[DEBUG] before DB query, where:', where);
-    const members = await Member.findAll({ where });
+    const members = await Member.findAll({ where: withStudioWhere(req, where) });
     console.log('[DEBUG] after DB query, count:', members.length);
     console.log('[DEBUG] before response.json');
     res.json(members);
@@ -204,16 +283,16 @@ exports.getMembers = async (req, res) => {
 // GET /members/all (admin only)
 exports.getAllMembers = async (req, res) => {
   if (req.user.role !== 'admin') return res.sendStatus(403);
-  const members = await Member.findAll();
+  const members = await Member.findAll({ where: withStudioWhere(req, {}) });
   res.json(members);
 };
 
 exports.getMember = async (req, res) => {
-  const member = await Member.findByPk(req.params.id);
+  const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
   if (!member) return res.sendStatus(404);
   // Get assigned lesson packages
   const assignments = await MemberLessonPackage.findAll({
-    where: { memberId: member.id },
+    where: withStudioWhere(req, { memberId: member.id }),
     include: [{
       model: LessonPackage,
       attributes: ['id', 'name', 'lessonCount', 'price']
@@ -240,11 +319,11 @@ exports.getMember = async (req, res) => {
 
 exports.getMemberMeasurements = async (req, res) => {
   try {
-    const member = await Member.findByPk(req.params.id);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
 
     const measurements = await MemberMeasurement.findAll({
-      where: { memberId: member.id },
+      where: withStudioWhere(req, { memberId: member.id }),
       order: [['measuredAt', 'DESC'], ['id', 'DESC']],
     });
 
@@ -256,7 +335,7 @@ exports.getMemberMeasurements = async (req, res) => {
 
 exports.addMemberMeasurement = async (req, res) => {
   try {
-    const member = await Member.findByPk(req.params.id);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
 
     const normalizedMeasuredAt = normalizeMeasuredAtInput(req.body.measuredAt);
@@ -296,6 +375,7 @@ exports.addMemberMeasurement = async (req, res) => {
         ...snapshotMeasurements,
         notes,
         createdByUserId,
+        studioId: getAuthenticatedStudioId(req),
       }, { transaction: t });
 
       member.set(snapshotMeasurements);
@@ -311,13 +391,20 @@ exports.addMemberMeasurement = async (req, res) => {
 exports.updateMember = async (req, res) => {
   try {
     const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
-    const member = await Member.findByPk(req.params.id);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
     if (phone && !/^\+90[0-9]{10}$/.test(phone)) return res.status(400).json({ error: 'Phone must start with +90 and have 12 digits' });
     if (name && typeof name !== 'string') return res.status(400).json({ error: 'Invalid name type' });
     if (phone && typeof phone !== 'string') return res.status(400).json({ error: 'Invalid phone type' });
     if (email !== undefined && email !== null && typeof email !== 'string') return res.status(400).json({ error: 'Invalid email type' });
     if (assignedSalonIds && !Array.isArray(assignedSalonIds)) return res.status(400).json({ error: 'assignedSalonIds must be an array' });
+
+    const relationValidation = await validateMemberRelations(req, {
+      memberTypeId,
+      assignedSalonIds,
+      assignedInstructorId,
+    });
+
     if (name) member.name = name;
     if (phone) member.phone = phone;
     // Email: allow null, trim if present, else null
@@ -325,15 +412,9 @@ exports.updateMember = async (req, res) => {
       const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
       member.email = safeEmail;
     }
-    if (memberTypeId) member.memberTypeId = memberTypeId;
-    if (assignedSalonIds) member.assignedSalonIds = assignedSalonIds;
-    // Minimal validation: allow null or integer for assignedInstructorId
-    if (assignedInstructorId !== undefined) {
-      if (assignedInstructorId !== null && isNaN(Number(assignedInstructorId))) {
-        return res.status(400).json({ error: 'assignedInstructorId must be an integer or null' });
-      }
-      member.assignedInstructorId = assignedInstructorId;
-    }
+    if (memberTypeId) member.memberTypeId = relationValidation.memberTypeId;
+    if (assignedSalonIds) member.assignedSalonIds = relationValidation.assignedSalonIds;
+    if (assignedInstructorId !== undefined) member.assignedInstructorId = relationValidation.assignedInstructorId;
     const measurementInput = pickMeasurementFields(req.body);
     console.log('[MemberUpdate] req.body measurements:', measurementInput);
     const measurementUpdates = {};
@@ -348,12 +429,12 @@ exports.updateMember = async (req, res) => {
     }
     member.set(measurementUpdates);
     await member.save();
-    const savedMember = await Member.findByPk(member.id);
+    const savedMember = await Member.findOne({ where: withStudioWhere(req, { id: member.id }) });
     if (!savedMember) return res.sendStatus(404);
     console.log('[MemberUpdate] saved member measurements:', pickMeasurementFields(savedMember.toJSON()));
     res.json(savedMember);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 };
 
@@ -364,7 +445,7 @@ exports.deleteMember = async (req, res) => {
       return res.status(403).json({ message: 'Only admin can deactivate members' });
     }
     const memberId = req.params.id;
-    const member = await Member.findByPk(memberId);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
     if (!member) {
       return res.status(404).json({ message: 'Member not found' });
     }
@@ -388,7 +469,7 @@ exports.deleteMember = async (req, res) => {
       await member.save({ transaction: t });
       // Delete all reservations for this member (single and recurring)
       await Reservation.destroy({
-        where: { memberId },
+        where: withStudioWhere(req, { memberId }),
         transaction: t
       });
       // Do NOT delete attendance or payments
@@ -400,14 +481,13 @@ exports.deleteMember = async (req, res) => {
 };
 
 // Add lesson package to member
-const { MemberLessonPackage } = require('../models');
 exports.addLessonPackage = async (req, res) => {
   try {
     const { lessonPackageId, discountType, discountValue } = req.body;
-    const member = await Member.findByPk(req.params.id);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
-    const lessonPackage = await LessonPackage.findByPk(lessonPackageId);
-    if (!lessonPackage) return res.status(400).json({ error: 'Lesson package not found' });
+    const lessonPackage = await LessonPackage.findOne({ where: withStudioWhere(req, { id: lessonPackageId }) });
+    if (!lessonPackage) return res.sendStatus(404);
 
     // Discount logic
     const originalPrice = Number(lessonPackage.price);
@@ -445,7 +525,8 @@ exports.addLessonPackage = async (req, res) => {
       originalPrice,
       discountType: safeDiscountType,
       discountValue: safeDiscountValue,
-      finalPrice
+      finalPrice,
+      studioId: getAuthenticatedStudioId(req),
     });
     // Return assignment info (including pricing fields)
     res.json({
@@ -470,7 +551,7 @@ exports.addPayment = async (req, res) => {
     const { amount, paymentMethodId, date } = req.body;
     if (!amount || !paymentMethodId || !date) return res.status(400).json({ error: 'Missing required fields' });
     if (isNaN(amount) || Number(amount) < 0) return res.status(400).json({ error: 'Amount must be a non-negative number' });
-    const member = await Member.findByPk(req.params.id);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
     const newDebt = Number(member.totalDebt) - Number(amount);
     if (newDebt < 0) return res.status(400).json({ error: 'totalDebt cannot be negative' });
@@ -548,7 +629,7 @@ exports.addAttendance = async (req, res) => {
     const { salonId, date } = req.body;
     const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
     if (!salonId || !date) return res.status(400).json({ error: 'Missing required fields' });
-    const member = await Member.findByPk(req.params.id);
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
 
     const reservationMatch = await findReservationMatch(member.id, date);
