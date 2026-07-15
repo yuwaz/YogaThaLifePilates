@@ -72,12 +72,6 @@ async function ensureMemberMeasurementsTable() {
     `);
   }
 
-  const columns = await getTableColumns('MemberMeasurements');
-  if (!columns.includes('studioId')) {
-    await sequelize.query('ALTER TABLE MemberMeasurements ADD COLUMN studioId INTEGER NOT NULL DEFAULT 1;');
-    console.log('[DB MIGRATION] Added studioId column to MemberMeasurements');
-  }
-
   await createIndexIfColumnExists('MemberMeasurements', 'memberId', 'idx_member_measurements_member_id');
   await createIndexIfColumnExists('MemberMeasurements', 'measuredAt', 'idx_member_measurements_measured_at');
 
