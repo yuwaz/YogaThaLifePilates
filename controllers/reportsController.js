@@ -1,9 +1,11 @@
 const { Op } = require('sequelize');
 const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense, User, ManualCardUsage } = require('../models');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 exports.getReports = async (req, res) => {
   try {
     const { mode = 'daily', startDate, endDate, salonId } = req.query;
+    const studioId = getAuthenticatedStudioId(req);
     const dateFilter = {};
     if (startDate) dateFilter[Op.gte] = startDate;
     if (endDate) dateFilter[Op.lte] = endDate;
@@ -15,14 +17,18 @@ exports.getReports = async (req, res) => {
       if (isNaN(salonIdNum)) {
         return res.status(400).json({ error: 'Geçersiz salon filtresi.' });
       }
+      const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonIdNum }) });
+      if (!salon) {
+        return res.status(404).json({ error: 'Not found' });
+      }
       salonIds = [salonIdNum];
       // Fetch all members (active + inactive), then filter in JS for historical reporting
-      members = await Member.findAll();
+      members = await Member.findAll({ where: withStudioWhere(req, {}) });
       members = members.filter(m => Array.isArray(m.assignedSalonIds) && m.assignedSalonIds.includes(salonIdNum));
     } else {
       // No salon filter, use all members for historical reporting
-      members = await Member.findAll();
-      const salons = await Salon.findAll({ attributes: ['id'] });
+      members = await Member.findAll({ where: withStudioWhere(req, {}) });
+      const salons = await Salon.findAll({ where: withStudioWhere(req, {}), attributes: ['id'] });
       salonIds = salons.map(s => s.id);
     }
     const activeMemberCount = members.filter(m => m.isActive === true).length;
@@ -34,7 +40,7 @@ exports.getReports = async (req, res) => {
     });
     const memberIds = members.map(m => m.id);
     // MemberType breakdown
-    const memberTypes = await MemberType.findAll();
+    const memberTypes = await MemberType.findAll({ where: withStudioWhere(req, {}) });
     const memberTypeMap = {};
     memberTypes.forEach(mt => { memberTypeMap[mt.id] = mt; });
     const memberTypeBreakdown = memberTypes.map(mt => ({
@@ -46,6 +52,7 @@ exports.getReports = async (req, res) => {
     // Payments
     const payments = await Payment.findAll({
       where: {
+        studioId,
         memberId: memberIds.length ? { [Op.in]: memberIds } : undefined,
         date: dateFilter
       }
@@ -61,9 +68,10 @@ exports.getReports = async (req, res) => {
     let packageWhere = {};
     if (memberIds.length) packageWhere.memberId = { [Op.in]: memberIds };
     if (startDate || endDate) packageWhere.assignedAt = dateFilter;
+    packageWhere.studioId = studioId;
     const assignments = await MemberLessonPackage.findAll({ where: packageWhere });
     // Fetch all lesson packages for fallback price
-    const lessonPackages = await LessonPackage.findAll();
+    const lessonPackages = await LessonPackage.findAll({ where: withStudioWhere(req, {}) });
     const lessonPackageMap = {};
     lessonPackages.forEach(lp => { lessonPackageMap[lp.id] = lp; });
     // For breakdown
@@ -112,7 +120,7 @@ exports.getReports = async (req, res) => {
     try {
       const cardBasedMemberTypes = memberTypes.filter(mt => mt.isCardBased === true);
       const cardBasedMemberTypeIds = cardBasedMemberTypes.map(mt => mt.id);
-      let attendanceWhere = { date: dateFilter };
+      let attendanceWhere = { date: dateFilter, studioId };
       if (memberIds.length) attendanceWhere.memberId = { [Op.in]: memberIds };
       const attendances = await Attendance.findAll({ where: attendanceWhere });
       totalAttendanceCount = attendances.length;
@@ -130,7 +138,7 @@ exports.getReports = async (req, res) => {
       }
       // Fill instructor names
       for (const key in instructorMap) {
-        const instructor = await User.findByPk(instructorMap[key].instructorId, { attributes: ['id', 'username'] });
+        const instructor = await User.findOne({ where: withStudioWhere(req, { id: instructorMap[key].instructorId }), attributes: ['id', 'username'] });
         instructorMap[key].instructorName = instructor ? instructor.username : '';
       }
       instructorAttendanceBreakdown = Object.values(instructorMap);
@@ -149,6 +157,7 @@ exports.getReports = async (req, res) => {
 
       // Manual card usage summary from ManualCardUsages (isolated from attendances)
       const manualWhere = {};
+      manualWhere.studioId = studioId;
       if (startDate || endDate) manualWhere.usageDate = dateFilter;
       if (cardBasedMemberTypeIds.length) {
         manualWhere.memberTypeId = { [Op.in]: cardBasedMemberTypeIds };
@@ -224,6 +233,7 @@ exports.getReports = async (req, res) => {
 
       const sessionAttendances = await Attendance.findAll({
         where: {
+          studioId,
           reservationId: { [Op.not]: null },
           instructorId: { [Op.not]: null },
         },
@@ -231,7 +241,10 @@ exports.getReports = async (req, res) => {
           model: Reservation,
           required: true,
           attributes: ['id', 'salonId', 'date', 'time'],
-          where: reservationWhereForSessions,
+          where: {
+            ...reservationWhereForSessions,
+            studioId,
+          },
         }, {
           model: Member,
           required: false,
@@ -248,7 +261,7 @@ exports.getReports = async (req, res) => {
       const instructorIds = [...new Set(sessionAttendances.map((a) => Number(a.instructorId)).filter((id) => !Number.isNaN(id)))];
       const users = instructorIds.length
         ? await User.findAll({
-            where: { id: { [Op.in]: instructorIds } },
+            where: withStudioWhere(req, { id: { [Op.in]: instructorIds } }),
             attributes: ['id', 'username', 'groupSessionFee', 'individualSessionFee'],
           })
         : [];
@@ -261,7 +274,7 @@ exports.getReports = async (req, res) => {
         },
       ]));
 
-      const salonsForNames = await Salon.findAll({ attributes: ['id', 'name'] });
+      const salonsForNames = await Salon.findAll({ where: withStudioWhere(req, {}), attributes: ['id', 'name'] });
       const salonNameById = new Map(salonsForNames.map((s) => [Number(s.id), s.name]));
 
       const grouped = new Map();
@@ -391,13 +404,14 @@ exports.getReports = async (req, res) => {
     console.log('[Reports] cardBasedRevenueByType:', cardBasedRevenueByType);
     // Occupancy
     const reservationWhere = {
+      studioId,
       date: dateFilter,
       salonId: salonIds.length ? { [Op.in]: salonIds } : undefined
     };
     const reservations = await Reservation.findAll({ where: reservationWhere });
     const occupiedSlots = reservations.length;
     // Equipment count for salons
-    const equipments = await Equipment.findAll({ where: { salonId: salonIds.length ? { [Op.in]: salonIds } : undefined } });
+    const equipments = await Equipment.findAll({ where: { studioId, salonId: salonIds.length ? { [Op.in]: salonIds } : undefined } });
     const equipmentCount = equipments.length;
     // Slot calculation
     const slotCountPerDay = equipmentCount * 15; // 07:00-21:00
@@ -443,6 +457,7 @@ exports.getReports = async (req, res) => {
     }
     // Expenses total in selected range/salon
     const expenseWhere = {};
+    expenseWhere.studioId = studioId;
     if (startDate || endDate) expenseWhere.date = dateFilter;
     if (salonId !== undefined && salonId !== null) expenseWhere.salonId = Number(salonId);
     const expenses = await Expense.findAll({ where: expenseWhere });

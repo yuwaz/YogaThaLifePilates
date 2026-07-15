@@ -1,19 +1,20 @@
 const { Op } = require('sequelize');
 const { ManualCardUsage, MemberType } = require('../models');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 function isValidDateOnly(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-async function validateCardBasedMemberType(memberTypeId) {
+async function validateCardBasedMemberType(req, memberTypeId) {
   const parsedId = Number(memberTypeId);
   if (!Number.isInteger(parsedId) || parsedId <= 0) {
     return { ok: false, status: 400, error: 'memberTypeId must be a positive integer' };
   }
 
-  const memberType = await MemberType.findByPk(parsedId);
+  const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: parsedId }) });
   if (!memberType) {
-    return { ok: false, status: 400, error: 'memberTypeId does not exist' };
+    return { ok: false, status: 404, error: 'Not found' };
   }
 
   if (memberType.isCardBased !== true) {
@@ -26,7 +27,7 @@ async function validateCardBasedMemberType(memberTypeId) {
 exports.getManualCardUsages = async (req, res) => {
   try {
     const { startDate, endDate, memberTypeId } = req.query;
-    const where = {};
+    const where = withStudioWhere(req, {});
 
     if (startDate || endDate) {
       if (startDate && !isValidDateOnly(startDate)) {
@@ -45,6 +46,10 @@ exports.getManualCardUsages = async (req, res) => {
       const parsedTypeId = Number(memberTypeId);
       if (!Number.isInteger(parsedTypeId) || parsedTypeId <= 0) {
         return res.status(400).json({ error: 'memberTypeId must be a positive integer' });
+      }
+      const memberTypeValidation = await validateCardBasedMemberType(req, parsedTypeId);
+      if (!memberTypeValidation.ok) {
+        return res.status(memberTypeValidation.status).json({ error: memberTypeValidation.error });
       }
       where.memberTypeId = parsedTypeId;
     }
@@ -71,7 +76,7 @@ exports.createManualCardUsage = async (req, res) => {
       return res.status(400).json({ error: 'usageDate must be YYYY-MM-DD' });
     }
 
-    const memberTypeValidation = await validateCardBasedMemberType(memberTypeId);
+    const memberTypeValidation = await validateCardBasedMemberType(req, memberTypeId);
     if (!memberTypeValidation.ok) {
       return res.status(memberTypeValidation.status).json({ error: memberTypeValidation.error });
     }
@@ -86,6 +91,7 @@ exports.createManualCardUsage = async (req, res) => {
       memberTypeId: memberTypeValidation.memberTypeId,
       usageCount: numericUsageCount,
       note: typeof note === 'string' && note.trim() ? note.trim() : null,
+      studioId: getAuthenticatedStudioId(req),
     });
 
     res.status(201).json(row);
@@ -96,7 +102,7 @@ exports.createManualCardUsage = async (req, res) => {
 
 exports.updateManualCardUsage = async (req, res) => {
   try {
-    const row = await ManualCardUsage.findByPk(req.params.id);
+    const row = await ManualCardUsage.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!row) return res.sendStatus(404);
 
     const { usageDate, memberTypeId, usageCount, note } = req.body;
@@ -109,7 +115,7 @@ exports.updateManualCardUsage = async (req, res) => {
     }
 
     if (typeof memberTypeId !== 'undefined') {
-      const memberTypeValidation = await validateCardBasedMemberType(memberTypeId);
+      const memberTypeValidation = await validateCardBasedMemberType(req, memberTypeId);
       if (!memberTypeValidation.ok) {
         return res.status(memberTypeValidation.status).json({ error: memberTypeValidation.error });
       }
@@ -137,7 +143,7 @@ exports.updateManualCardUsage = async (req, res) => {
 
 exports.deleteManualCardUsage = async (req, res) => {
   try {
-    const row = await ManualCardUsage.findByPk(req.params.id);
+    const row = await ManualCardUsage.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!row) return res.sendStatus(404);
     await row.destroy();
     res.sendStatus(204);
