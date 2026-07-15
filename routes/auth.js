@@ -46,7 +46,10 @@ router.post('/login', async (req, res) => {
     if (typeof assignedSalonIds === 'string') {
       try { assignedSalonIds = JSON.parse(assignedSalonIds); } catch { assignedSalonIds = []; }
     }
-    const payload = { id: user.id, role: user.role, assignedSalonIds, permissions };
+    const normalizedStudioId = Number.isInteger(Number(user.studioId)) && Number(user.studioId) > 0
+      ? Number(user.studioId)
+      : 1;
+    const payload = { id: user.id, role: user.role, assignedSalonIds, permissions, studioId: normalizedStudioId };
     console.log('[Auth] JWT permissions:', permissions);
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
     console.log('[Auth] response permissions:', permissions);
@@ -55,6 +58,7 @@ router.post('/login', async (req, res) => {
       role: user.role,
       assignedSalonIds,
       permissions,
+      studioId: normalizedStudioId,
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -65,7 +69,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
-      attributes: ['id', 'username', 'role', 'assignedSalonIds', 'permissions']
+      attributes: ['id', 'username', 'role', 'assignedSalonIds', 'permissions', 'studioId']
     });
     if (!user) return res.sendStatus(404);
     res.json(user);
