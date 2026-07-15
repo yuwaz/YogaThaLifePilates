@@ -18,6 +18,14 @@ function authenticateToken(req, res, next) {
     if (typeof user.assignedSalonIds === 'string') {
       try { user.assignedSalonIds = JSON.parse(user.assignedSalonIds); } catch { user.assignedSalonIds = []; }
     }
+
+    if (typeof user.studioId === 'undefined') {
+      // Temporary saas backward compatibility for legacy tokens.
+      user.studioId = 1;
+    } else if (!Number.isInteger(user.studioId) || user.studioId <= 0) {
+      return res.sendStatus(403);
+    }
+
     req.user = user;
     console.log('[DEBUG] req.user after auth middleware:', req.user);
     next();
