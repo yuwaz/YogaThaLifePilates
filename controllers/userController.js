@@ -1,5 +1,44 @@
 const { User, Salon } = require('../models');
 const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
+const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
+
+function toSafeUserPayload(user) {
+  const payload = user && typeof user.get === 'function' ? user.get({ plain: true }) : user;
+  if (!payload || typeof payload !== 'object') return payload;
+  const { password, ...safePayload } = payload;
+  return safePayload;
+}
+
+async function validateAssignedSalonIdsInStudio(req, assignedSalonIds) {
+  if (typeof assignedSalonIds === 'undefined') {
+    return;
+  }
+
+  if (!Array.isArray(assignedSalonIds)) {
+    throw { status: 400, message: 'assignedSalonIds must be an array' };
+  }
+
+  if (assignedSalonIds.length === 0) {
+    return;
+  }
+
+  const normalizedSalonIds = assignedSalonIds.map((value) => Number(value));
+  if (normalizedSalonIds.some((value) => !Number.isInteger(value) || value <= 0)) {
+    throw { status: 404, message: 'Not found' };
+  }
+
+  const uniqueSalonIds = [...new Set(normalizedSalonIds)];
+  const salonCount = await Salon.count({
+    where: withStudioWhere(req, {
+      id: { [Op.in]: uniqueSalonIds },
+    }),
+  });
+
+  if (salonCount !== uniqueSalonIds.length) {
+    throw { status: 404, message: 'Not found' };
+  }
+}
 
 exports.createUser = async (req, res) => {
   try {
@@ -25,6 +64,9 @@ exports.createUser = async (req, res) => {
         return res.status(400).json({ error: 'permissions must be an array' });
       }
     }
+
+    await validateAssignedSalonIdsInStudio(req, assignedSalonIds || []);
+
     const hash = await bcrypt.hash(password, 10);
     try {
       const user = await User.create({
@@ -33,10 +75,11 @@ exports.createUser = async (req, res) => {
         role,
         assignedSalonIds: assignedSalonIds || [],
         permissions: permissions || [],
+        studioId: getAuthenticatedStudioId(req),
         groupSessionFee: groupSessionFee === undefined ? 0 : Number(groupSessionFee),
         individualSessionFee: individualSessionFee === undefined ? 0 : Number(individualSessionFee),
       });
-      res.status(201).json(user);
+      res.status(201).json(toSafeUserPayload(user));
     } catch (dbErr) {
       // Sequelize validation errors
       if (dbErr.name === 'SequelizeValidationError' || dbErr.name === 'SequelizeUniqueConstraintError') {
@@ -50,25 +93,31 @@ exports.createUser = async (req, res) => {
     }
   } catch (err) {
     console.error('User create logic error:', err);
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message || 'Server error' });
   }
 };
 
 exports.getUsers = async (req, res) => {
-  const users = await User.findAll();
+  const users = await User.findAll({
+    where: withStudioWhere(req, {}),
+    attributes: { exclude: ['password'] },
+  });
   res.json(users);
 };
 
 exports.getInstructors = async (req, res) => {
   const instructors = await User.findAll({
-    where: { role: 'instructor' },
+    where: withStudioWhere(req, { role: 'instructor' }),
     attributes: ['id', 'username', 'role', 'assignedSalonIds', 'permissions', 'groupSessionFee', 'individualSessionFee']
   });
   res.json(instructors);
 };
 
 exports.getUser = async (req, res) => {
-  const user = await User.findByPk(req.params.id);
+  const user = await User.findOne({
+    where: withStudioWhere(req, { id: req.params.id }),
+    attributes: { exclude: ['password'] },
+  });
   if (!user) return res.sendStatus(404);
   res.json(user);
 };
@@ -76,7 +125,7 @@ exports.getUser = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { username, password, role, assignedSalonIds, permissions, groupSessionFee, individualSessionFee } = req.body;
-    const user = await User.findByPk(req.params.id);
+    const user = await User.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!user) return res.sendStatus(404);
     if (username && typeof username !== 'string') return res.status(400).json({ error: 'Invalid username type' });
     if (role && typeof role !== 'string') return res.status(400).json({ error: 'Invalid role type' });
@@ -88,6 +137,9 @@ exports.updateUser = async (req, res) => {
     if (individualSessionFee !== undefined && (isNaN(Number(individualSessionFee)) || Number(individualSessionFee) < 0)) {
       return res.status(400).json({ error: 'individualSessionFee must be a non-negative number' });
     }
+
+    await validateAssignedSalonIdsInStudio(req, assignedSalonIds);
+
     if (username) user.username = username;
     if (role) user.role = role;
     if (assignedSalonIds) user.assignedSalonIds = assignedSalonIds;
@@ -96,14 +148,14 @@ exports.updateUser = async (req, res) => {
     if (individualSessionFee !== undefined) user.individualSessionFee = Number(individualSessionFee);
     if (password) user.password = await bcrypt.hash(password, 10);
     await user.save();
-    res.json(user);
+    res.json(toSafeUserPayload(user));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message || 'Server error' });
   }
 };
 
 exports.deleteUser = async (req, res) => {
-  const user = await User.findByPk(req.params.id);
+  const user = await User.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
   if (!user) return res.sendStatus(404);
   await user.destroy();
   res.sendStatus(204);
