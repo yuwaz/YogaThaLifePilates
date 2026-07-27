@@ -18,6 +18,7 @@ async function ensureInstructorPayoutAndSessionTypeColumns() {
   const hasMemberTypes = await tableExists('MemberTypes');
   if (hasMemberTypes) {
     const memberTypeColumns = await getTableColumns('MemberTypes');
+    const hasIsCardBased = memberTypeColumns.includes('isCardBased');
     if (!memberTypeColumns.includes('sessionType')) {
       await sequelize.query("ALTER TABLE MemberTypes ADD COLUMN sessionType VARCHAR(32) NULL DEFAULT 'group';");
       console.log('[DB MIGRATION] Added sessionType column to MemberTypes');
@@ -25,7 +26,9 @@ async function ensureInstructorPayoutAndSessionTypeColumns() {
 
     const refreshedMemberTypeColumns = await getTableColumns('MemberTypes');
     if (refreshedMemberTypeColumns.includes('sessionType')) {
-      await sequelize.query("UPDATE MemberTypes SET sessionType = 'group' WHERE isCardBased = 1;");
+      if (hasIsCardBased) {
+        await sequelize.query("UPDATE MemberTypes SET sessionType = 'group' WHERE isCardBased = 1;");
+      }
       await sequelize.query("UPDATE MemberTypes SET sessionType = 'group' WHERE sessionType IS NULL OR TRIM(sessionType) = '';");
     }
   }
