@@ -87,6 +87,7 @@ const ensureReservationStudioIdColumn = require('./ensureReservationStudioIdColu
 const ensureAttendanceStudioIdColumn = require('./ensureAttendanceStudioIdColumn');
 const ensureMemberLessonPackageStudioIdColumn = require('./ensureMemberLessonPackageStudioIdColumn');
 const ensureMemberMeasurementStudioIdColumn = require('./ensureMemberMeasurementStudioIdColumn');
+const ensureStudioScopedUserMemberUniqueness = require('./ensureStudioScopedUserMemberUniqueness');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
@@ -110,6 +111,7 @@ const PORT = process.env.PORT || 3000;
   await ensureAttendanceReservationColumn();
   await ensureAttendanceInstructorColumn();
   await ensureMemberMeasurementsTable();
+  await ensureStudioScopedUserMemberUniqueness();
   await ensureInstructorPayoutAndSessionTypeColumns();
   await sequelize.sync();
   // Listen on all network interfaces for external access

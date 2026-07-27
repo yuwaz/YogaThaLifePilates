@@ -10,7 +10,6 @@ module.exports = (sequelize) => {
     username: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
     },
     password: {
       type: DataTypes.STRING,
@@ -49,6 +48,14 @@ module.exports = (sequelize) => {
       allowNull: true,
       defaultValue: 0,
     },
+  }, {
+    indexes: [
+      {
+        name: 'users_studio_username_unique',
+        unique: true,
+        fields: ['studioId', 'username'],
+      },
+    ],
   });
   return User;
 };

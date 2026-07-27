@@ -40,6 +40,16 @@ async function validateAssignedSalonIdsInStudio(req, assignedSalonIds) {
   }
 }
 
+async function usernameExistsInStudio(req, username, excludeUserId) {
+  const where = withStudioWhere(req, { username });
+  if (excludeUserId !== undefined && excludeUserId !== null) {
+    where.id = { [Op.ne]: Number(excludeUserId) };
+  }
+
+  const existing = await User.findOne({ where, attributes: ['id'] });
+  return Boolean(existing);
+}
+
 exports.createUser = async (req, res) => {
   try {
     const { username, password, role, assignedSalonIds, permissions, groupSessionFee, individualSessionFee } = req.body;
@@ -66,6 +76,13 @@ exports.createUser = async (req, res) => {
     }
 
     await validateAssignedSalonIdsInStudio(req, assignedSalonIds || []);
+
+    if (await usernameExistsInStudio(req, username)) {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: [{ message: 'Username already exists in this studio', path: 'username', value: username }],
+      });
+    }
 
     const hash = await bcrypt.hash(password, 10);
     try {
@@ -139,6 +156,13 @@ exports.updateUser = async (req, res) => {
     }
 
     await validateAssignedSalonIdsInStudio(req, assignedSalonIds);
+
+    if (username && await usernameExistsInStudio(req, username, user.id)) {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: [{ message: 'Username already exists in this studio', path: 'username', value: username }],
+      });
+    }
 
     if (username) user.username = username;
     if (role) user.role = role;

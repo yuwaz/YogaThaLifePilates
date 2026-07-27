@@ -21,7 +21,6 @@ module.exports = (sequelize) => {
     email: {
       type: DataTypes.STRING,
       allowNull: true,
-      unique: true, // allow multiple nulls, but unique for non-nulls
       defaultValue: null,
       validate: {
         isEmailOrNull(value) {
@@ -123,6 +122,14 @@ module.exports = (sequelize) => {
       type: DataTypes.DATE,
       allowNull: true,
     },
+  }, {
+    indexes: [
+      {
+        name: 'members_studio_email_unique',
+        unique: true,
+        fields: ['studioId', 'email'],
+      },
+    ],
   });
   return Member;
 };

@@ -167,6 +167,18 @@ async function validateMemberRelations(req, { memberTypeId, assignedSalonIds, as
   return normalized;
 }
 
+async function emailExistsInStudio(req, email, excludeMemberId) {
+  if (email === null || email === undefined) return false;
+
+  const where = withStudioWhere(req, { email });
+  if (excludeMemberId !== undefined && excludeMemberId !== null) {
+    where.id = { [Op.ne]: Number(excludeMemberId) };
+  }
+
+  const existing = await Member.findOne({ where, attributes: ['id'] });
+  return Boolean(existing);
+}
+
 exports.createMember = async (req, res) => {
   try {
     const { name, phone, email, memberTypeId, assignedSalonIds, assignedInstructorId } = req.body;
@@ -208,6 +220,9 @@ exports.createMember = async (req, res) => {
 
     // Email: allow null, trim if present, else null
     const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
+    if (safeEmail !== null && await emailExistsInStudio(req, safeEmail)) {
+      return res.status(400).json({ error: 'Bu email zaten kayıtlı' });
+    }
     const memberPayload = {
       name,
       phone: normalizedPhone,
@@ -410,6 +425,9 @@ exports.updateMember = async (req, res) => {
     // Email: allow null, trim if present, else null
     if (email !== undefined) {
       const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
+      if (safeEmail !== null && await emailExistsInStudio(req, safeEmail, member.id)) {
+        return res.status(400).json({ error: 'Bu email zaten kayıtlı' });
+      }
       member.email = safeEmail;
     }
     if (memberTypeId) member.memberTypeId = relationValidation.memberTypeId;
