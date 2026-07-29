@@ -20,6 +20,7 @@ const expensesRoutes = require('./routes/settings/expenses');
 const manualCardUsagesRoutes = require('./routes/settings/manual-card-usages');
 const studioOnboardingRoutes = require('./routes/settings/studio-onboarding');
 const subscriptionRoutes = require('./routes/subscription');
+const subscriptionSettingsRoutes = require('./routes/settings/subscription');
 
 const app = express();
 // Apply CORS globally before all routes
@@ -52,6 +53,7 @@ app.use('/settings/expenses', expensesRoutes);
 app.use('/settings/manual-card-usages', manualCardUsagesRoutes);
 app.use('/settings/studio/onboarding', studioOnboardingRoutes);
 app.use('/subscription', subscriptionRoutes);
+app.use('/settings/subscription', subscriptionSettingsRoutes);
 
 app.use('/settings/memberTypes', memberTypesRoutes);
 app.use('/settings/paymentMethods', paymentMethodsRoutes);
