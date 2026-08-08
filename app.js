@@ -98,9 +98,13 @@ const ensureAppleSubscriptionTransactionsTable = require('./ensureAppleSubscript
 const ensureAppleServerNotificationInboxTable = require('./ensureAppleServerNotificationInboxTable');
 const ensureGooglePlaySubscriptionTransactionsTable = require('./ensureGooglePlaySubscriptionTransactionsTable');
 const ensureGooglePubSubNotificationInboxTable = require('./ensureGooglePubSubNotificationInboxTable');
+const ensurePlatformAdminsTable = require('./ensurePlatformAdminsTable');
+const ensurePlatformAuditLogsTable = require('./ensurePlatformAuditLogsTable');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
+  await ensurePlatformAdminsTable();
+  await ensurePlatformAuditLogsTable();
   await ensureStudioSubscriptionEntitlementsTable();
   await ensureSubscriptionPurchaseIntentsTable();
   await ensureAppleSubscriptionTransactionsTable();

@@ -22,6 +22,8 @@ const AppleSubscriptionTransaction = require('./appleSubscriptionTransaction');
 const AppleServerNotificationInbox = require('./appleServerNotificationInbox');
 const GooglePlaySubscriptionTransaction = require('./googlePlaySubscriptionTransaction');
 const GooglePubSubNotificationInbox = require('./googlePubSubNotificationInbox');
+const PlatformAdmin = require('./platformAdmin');
+const PlatformAuditLog = require('./platformAuditLog');
 
 const preferredDbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
@@ -65,6 +67,8 @@ const models = {
   AppleServerNotificationInbox: AppleServerNotificationInbox(sequelize),
   GooglePlaySubscriptionTransaction: GooglePlaySubscriptionTransaction(sequelize),
   GooglePubSubNotificationInbox: GooglePubSubNotificationInbox(sequelize),
+  PlatformAdmin: PlatformAdmin(sequelize),
+  PlatformAuditLog: PlatformAuditLog(sequelize),
 };
 // MemberLessonPackage associations
 models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
@@ -154,6 +158,13 @@ models.Salon.hasMany(models.Expense, { foreignKey: 'salonId' });
 
 models.Expense.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });
 models.PaymentMethod.hasMany(models.Expense, { foreignKey: 'paymentMethodId' });
+
+models.PlatformAdmin.hasMany(models.PlatformAuditLog, {
+  foreignKey: 'actorPlatformAdminId',
+});
+models.PlatformAuditLog.belongsTo(models.PlatformAdmin, {
+  foreignKey: 'actorPlatformAdminId',
+});
 
 // User <-> Salon: assignedSalonIds is an array of salon IDs (custom logic in app)
 // Member <-> Salon: assignedSalonIds is an array of salon IDs (custom logic in app)
