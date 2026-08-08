@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node app.js",
     "create-admin": "node scripts/createAdmin.js",
+    "manage-platform-admin": "node scripts/managePlatformAdmin.js",
     "reconcile:apple": "node scripts/reconcileAppleSubscriptions.js",
     "reconcile:google-play": "node scripts/reconcileGooglePlaySubscriptions.js"
   },
