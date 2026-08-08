@@ -30,6 +30,8 @@ async function ensureStudiosTable() {
         subscriptionPlan VARCHAR(255) NOT NULL DEFAULT 'trial',
         operationalStatus VARCHAR(255) NOT NULL DEFAULT 'active',
         trialEndsAt DATETIME NULL,
+        onboardingCompleted INTEGER NOT NULL DEFAULT 0,
+        onboardingStep VARCHAR(64) NOT NULL DEFAULT 'studio',
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -55,6 +57,17 @@ async function ensureStudiosTable() {
   await sequelize.query(
     "UPDATE Studios SET operationalStatus = 'active' WHERE operationalStatus IS NULL OR TRIM(operationalStatus) = ''"
   );
+  if (await columnExists('Studios', 'onboardingCompleted')) {
+    await sequelize.query(
+      'UPDATE Studios SET onboardingCompleted = 0 WHERE onboardingCompleted IS NULL'
+    );
+  }
+
+  if (await columnExists('Studios', 'onboardingStep')) {
+    await sequelize.query(
+      "UPDATE Studios SET onboardingStep = 'studio' WHERE onboardingStep IS NULL OR TRIM(onboardingStep) = ''"
+    );
+  }
 
   const [existingStudios] = await sequelize.query(
     'SELECT id FROM Studios WHERE id = ? LIMIT 1',
@@ -80,9 +93,11 @@ async function ensureStudiosTable() {
         subscriptionPlan,
         operationalStatus,
         trialEndsAt,
+        onboardingCompleted,
+        onboardingStep,
         createdAt,
         updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `,
     {
       replacements: [
@@ -98,6 +113,8 @@ async function ensureStudiosTable() {
         'trial',
         'active',
         null,
+        1,
+        'completed',
       ],
     }
   );

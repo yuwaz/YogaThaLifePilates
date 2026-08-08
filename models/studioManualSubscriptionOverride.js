@@ -112,6 +112,14 @@ module.exports = (sequelize) => {
         name: 'studio_manual_subscription_overrides_expires_at_idx',
         fields: ['expiresAt'],
       },
+      {
+        name: 'studio_manual_subscription_overrides_one_active_per_studio_unique',
+        unique: true,
+        fields: ['studioId'],
+        where: {
+          revokedAt: null,
+        },
+      },
     ],
     validate: {
       expiresAfterEffectiveFrom() {
