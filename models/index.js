@@ -16,6 +16,12 @@ const Expense = require('./expense');
 const MemberMeasurement = require('./memberMeasurement');
 const ManualCardUsage = require('./manualCardUsage');
 const Studio = require('./studio');
+const StudioSubscriptionEntitlement = require('./studioSubscriptionEntitlement');
+const SubscriptionPurchaseIntent = require('./subscriptionPurchaseIntent');
+const AppleSubscriptionTransaction = require('./appleSubscriptionTransaction');
+const AppleServerNotificationInbox = require('./appleServerNotificationInbox');
+const GooglePlaySubscriptionTransaction = require('./googlePlaySubscriptionTransaction');
+const GooglePubSubNotificationInbox = require('./googlePubSubNotificationInbox');
 
 const preferredDbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
@@ -53,6 +59,12 @@ const models = {
   MemberMeasurement: MemberMeasurement(sequelize),
   ManualCardUsage: ManualCardUsage(sequelize),
   Studio: Studio(sequelize),
+  StudioSubscriptionEntitlement: StudioSubscriptionEntitlement(sequelize),
+  SubscriptionPurchaseIntent: SubscriptionPurchaseIntent(sequelize),
+  AppleSubscriptionTransaction: AppleSubscriptionTransaction(sequelize),
+  AppleServerNotificationInbox: AppleServerNotificationInbox(sequelize),
+  GooglePlaySubscriptionTransaction: GooglePlaySubscriptionTransaction(sequelize),
+  GooglePubSubNotificationInbox: GooglePubSubNotificationInbox(sequelize),
 };
 // MemberLessonPackage associations
 models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
@@ -115,6 +127,24 @@ models.Studio.hasMany(models.ManualCardUsage, { foreignKey: 'studioId' });
 models.ManualCardUsage.belongsTo(models.Studio, { foreignKey: 'studioId' });
 models.Studio.hasMany(models.MemberMeasurement, { foreignKey: 'studioId' });
 models.MemberMeasurement.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.StudioSubscriptionEntitlement, { foreignKey: 'studioId' });
+models.StudioSubscriptionEntitlement.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.SubscriptionPurchaseIntent, { foreignKey: 'studioId' });
+models.SubscriptionPurchaseIntent.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.User.hasMany(models.SubscriptionPurchaseIntent, {
+  as: 'CreatedSubscriptionPurchaseIntents',
+  foreignKey: 'createdByUserId',
+  constraints: false,
+});
+models.SubscriptionPurchaseIntent.belongsTo(models.User, {
+  as: 'CreatedByUser',
+  foreignKey: 'createdByUserId',
+  constraints: false,
+});
+models.Studio.hasMany(models.AppleSubscriptionTransaction, { foreignKey: 'studioId' });
+models.AppleSubscriptionTransaction.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.GooglePlaySubscriptionTransaction, { foreignKey: 'studioId' });
+models.GooglePlaySubscriptionTransaction.belongsTo(models.Studio, { foreignKey: 'studioId' });
 
 models.Payment.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Payment.belongsTo(models.PaymentMethod, { foreignKey: 'paymentMethodId' });

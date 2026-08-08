@@ -92,9 +92,21 @@ const ensureAttendanceStudioIdColumn = require('./ensureAttendanceStudioIdColumn
 const ensureMemberLessonPackageStudioIdColumn = require('./ensureMemberLessonPackageStudioIdColumn');
 const ensureMemberMeasurementStudioIdColumn = require('./ensureMemberMeasurementStudioIdColumn');
 const ensureStudioScopedUserMemberUniqueness = require('./ensureStudioScopedUserMemberUniqueness');
+const ensureStudioSubscriptionEntitlementsTable = require('./ensureStudioSubscriptionEntitlementsTable');
+const ensureSubscriptionPurchaseIntentsTable = require('./ensureSubscriptionPurchaseIntentsTable');
+const ensureAppleSubscriptionTransactionsTable = require('./ensureAppleSubscriptionTransactionsTable');
+const ensureAppleServerNotificationInboxTable = require('./ensureAppleServerNotificationInboxTable');
+const ensureGooglePlaySubscriptionTransactionsTable = require('./ensureGooglePlaySubscriptionTransactionsTable');
+const ensureGooglePubSubNotificationInboxTable = require('./ensureGooglePubSubNotificationInboxTable');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
+  await ensureStudioSubscriptionEntitlementsTable();
+  await ensureSubscriptionPurchaseIntentsTable();
+  await ensureAppleSubscriptionTransactionsTable();
+  await ensureAppleServerNotificationInboxTable();
+  await ensureGooglePlaySubscriptionTransactionsTable();
+  await ensureGooglePubSubNotificationInboxTable();
   await ensureStudioCodeColumn();
   await ensureStudioOnboardingColumns();
   await ensureUserStudioIdColumn();
