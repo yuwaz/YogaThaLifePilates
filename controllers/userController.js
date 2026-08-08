@@ -141,11 +141,17 @@ exports.getUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
-    const { username, password, role, assignedSalonIds, permissions, groupSessionFee, individualSessionFee } = req.body;
+    const { username, password, newPassword, role, assignedSalonIds, permissions, groupSessionFee, individualSessionFee } = req.body;
     const user = await User.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!user) return res.sendStatus(404);
     if (username && typeof username !== 'string') return res.status(400).json({ error: 'Invalid username type' });
     if (role && typeof role !== 'string') return res.status(400).json({ error: 'Invalid role type' });
+    if (typeof newPassword !== 'undefined' && newPassword !== null && typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'Invalid newPassword type' });
+    }
+    if (typeof password !== 'undefined' && password !== null && typeof password !== 'string') {
+      return res.status(400).json({ error: 'Invalid password type' });
+    }
     if (assignedSalonIds && !Array.isArray(assignedSalonIds)) return res.status(400).json({ error: 'assignedSalonIds must be an array' });
     if (permissions && !Array.isArray(permissions)) return res.status(400).json({ error: 'permissions must be an array' });
     if (groupSessionFee !== undefined && (isNaN(Number(groupSessionFee)) || Number(groupSessionFee) < 0)) {
@@ -164,13 +170,32 @@ exports.updateUser = async (req, res) => {
       });
     }
 
+    const requestedNewPassword = typeof newPassword === 'string' && newPassword.trim() !== ''
+      ? newPassword
+      : null;
+    const requestedLegacyPassword = !requestedNewPassword && typeof password === 'string' && password.trim() !== ''
+      ? password
+      : null;
+    const passwordToApply = requestedNewPassword || requestedLegacyPassword;
+    const trimmedPasswordToApply = typeof passwordToApply === 'string' ? passwordToApply.trim() : '';
+
+    if (passwordToApply) {
+      if (!req.user || req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'ADMIN_REQUIRED' });
+      }
+
+      if (trimmedPasswordToApply.length < 6) {
+        return res.status(400).json({ error: 'newPassword must be at least 6 characters' });
+      }
+    }
+
     if (username) user.username = username;
     if (role) user.role = role;
     if (assignedSalonIds) user.assignedSalonIds = assignedSalonIds;
     if (permissions) user.permissions = permissions;
     if (groupSessionFee !== undefined) user.groupSessionFee = Number(groupSessionFee);
     if (individualSessionFee !== undefined) user.individualSessionFee = Number(individualSessionFee);
-    if (password) user.password = await bcrypt.hash(password, 10);
+    if (passwordToApply) user.password = await bcrypt.hash(passwordToApply, 10);
     await user.save();
     res.json(toSafeUserPayload(user));
   } catch (err) {
