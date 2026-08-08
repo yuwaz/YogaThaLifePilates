@@ -3,6 +3,7 @@ const {
   SUPPORTED_COUNTRY_CODES,
   SUPPORTED_CURRENCIES,
   ONBOARDING_STEPS,
+  SUBSCRIPTION_PLANS,
   SUBSCRIPTION_STATUSES,
   normalizeUppercaseCode,
   normalizeStudioCode,
@@ -93,6 +94,14 @@ module.exports = (sequelize) => {
       defaultValue: 'trial',
       validate: {
         isIn: [SUBSCRIPTION_STATUSES],
+      },
+    },
+    subscriptionPlan: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'trial',
+      validate: {
+        isIn: [SUBSCRIPTION_PLANS],
       },
     },
     trialEndsAt: {

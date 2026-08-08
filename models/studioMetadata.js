@@ -23,6 +23,14 @@ const SUBSCRIPTION_STATUSES = Object.freeze([
   'cancelled',
 ]);
 
+const SUBSCRIPTION_PLANS = Object.freeze([
+  'trial',
+  'basic',
+  'pro',
+  'enterprise',
+  'lifetime',
+]);
+
 const TURKISH_CHAR_MAP = Object.freeze({
   Ç: 'c',
   Ğ: 'g',
@@ -73,6 +81,10 @@ function isSupportedCurrency(value) {
 
 function isSupportedSubscriptionStatus(value) {
   return SUBSCRIPTION_STATUSES.includes(value);
+}
+
+function isSupportedSubscriptionPlan(value) {
+  return SUBSCRIPTION_PLANS.includes(value);
 }
 
 function normalizeStudioCode(value) {
@@ -149,6 +161,7 @@ module.exports = {
   SUPPORTED_COUNTRY_CODES,
   SUPPORTED_CURRENCIES,
   SUBSCRIPTION_STATUSES,
+  SUBSCRIPTION_PLANS,
   TURKISH_CHAR_MAP,
   ONBOARDING_STEPS,
   ONBOARDING_STEP_INDEX,
@@ -156,6 +169,7 @@ module.exports = {
   isSupportedCountryCode,
   isSupportedCurrency,
   isSupportedSubscriptionStatus,
+  isSupportedSubscriptionPlan,
   normalizeStudioCode,
   isValidStudioCode,
   generateStudioCodeBase,
