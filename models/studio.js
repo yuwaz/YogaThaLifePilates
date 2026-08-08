@@ -5,6 +5,7 @@ const {
   ONBOARDING_STEPS,
   SUBSCRIPTION_PLANS,
   SUBSCRIPTION_STATUSES,
+  OPERATIONAL_STATUSES,
   normalizeUppercaseCode,
   normalizeStudioCode,
   isSupportedCountryCode,
@@ -102,6 +103,14 @@ module.exports = (sequelize) => {
       defaultValue: 'trial',
       validate: {
         isIn: [SUBSCRIPTION_PLANS],
+      },
+    },
+    operationalStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'active',
+      validate: {
+        isIn: [OPERATIONAL_STATUSES],
       },
     },
     trialEndsAt: {

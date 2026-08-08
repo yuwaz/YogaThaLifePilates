@@ -24,6 +24,7 @@ const GooglePlaySubscriptionTransaction = require('./googlePlaySubscriptionTrans
 const GooglePubSubNotificationInbox = require('./googlePubSubNotificationInbox');
 const PlatformAdmin = require('./platformAdmin');
 const PlatformAuditLog = require('./platformAuditLog');
+const StudioManualSubscriptionOverride = require('./studioManualSubscriptionOverride');
 
 const preferredDbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
@@ -69,6 +70,7 @@ const models = {
   GooglePubSubNotificationInbox: GooglePubSubNotificationInbox(sequelize),
   PlatformAdmin: PlatformAdmin(sequelize),
   PlatformAuditLog: PlatformAuditLog(sequelize),
+  StudioManualSubscriptionOverride: StudioManualSubscriptionOverride(sequelize),
 };
 // MemberLessonPackage associations
 models.MemberLessonPackage.belongsTo(models.Member, { foreignKey: 'memberId' });
@@ -164,6 +166,29 @@ models.PlatformAdmin.hasMany(models.PlatformAuditLog, {
 });
 models.PlatformAuditLog.belongsTo(models.PlatformAdmin, {
   foreignKey: 'actorPlatformAdminId',
+});
+
+models.Studio.hasMany(models.StudioManualSubscriptionOverride, {
+  foreignKey: 'studioId',
+});
+models.StudioManualSubscriptionOverride.belongsTo(models.Studio, {
+  foreignKey: 'studioId',
+});
+models.PlatformAdmin.hasMany(models.StudioManualSubscriptionOverride, {
+  as: 'CreatedStudioManualSubscriptionOverrides',
+  foreignKey: 'createdByPlatformAdminId',
+});
+models.StudioManualSubscriptionOverride.belongsTo(models.PlatformAdmin, {
+  as: 'CreatedByPlatformAdmin',
+  foreignKey: 'createdByPlatformAdminId',
+});
+models.PlatformAdmin.hasMany(models.StudioManualSubscriptionOverride, {
+  as: 'RevokedStudioManualSubscriptionOverrides',
+  foreignKey: 'revokedByPlatformAdminId',
+});
+models.StudioManualSubscriptionOverride.belongsTo(models.PlatformAdmin, {
+  as: 'RevokedByPlatformAdmin',
+  foreignKey: 'revokedByPlatformAdminId',
 });
 
 // User <-> Salon: assignedSalonIds is an array of salon IDs (custom logic in app)

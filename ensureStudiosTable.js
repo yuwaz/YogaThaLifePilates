@@ -28,6 +28,7 @@ async function ensureStudiosTable() {
         timezone VARCHAR(255) NOT NULL,
         subscriptionStatus VARCHAR(255) NOT NULL DEFAULT 'trial',
         subscriptionPlan VARCHAR(255) NOT NULL DEFAULT 'trial',
+        operationalStatus VARCHAR(255) NOT NULL DEFAULT 'active',
         trialEndsAt DATETIME NULL,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -41,8 +42,18 @@ async function ensureStudiosTable() {
     console.log('[DB MIGRATION] Added Studios.subscriptionPlan column');
   }
 
+  if (!(await columnExists('Studios', 'operationalStatus'))) {
+    await sequelize.query(
+      "ALTER TABLE Studios ADD COLUMN operationalStatus VARCHAR(255) NULL DEFAULT 'active'"
+    );
+    console.log('[DB MIGRATION] Added Studios.operationalStatus column');
+  }
+
   await sequelize.query(
     "UPDATE Studios SET subscriptionPlan = 'trial' WHERE subscriptionPlan IS NULL"
+  );
+  await sequelize.query(
+    "UPDATE Studios SET operationalStatus = 'active' WHERE operationalStatus IS NULL OR TRIM(operationalStatus) = ''"
   );
 
   const [existingStudios] = await sequelize.query(
@@ -67,10 +78,11 @@ async function ensureStudiosTable() {
         timezone,
         subscriptionStatus,
         subscriptionPlan,
+        operationalStatus,
         trialEndsAt,
         createdAt,
         updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `,
     {
       replacements: [
@@ -84,6 +96,7 @@ async function ensureStudiosTable() {
         'Europe/Istanbul',
         'active',
         'trial',
+        'active',
         null,
       ],
     }
