@@ -2,6 +2,7 @@ const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
 const {
 	getStatus,
+	getCatalog,
 	createApplePurchaseIntent,
 	createGooglePlayPurchaseIntent,
 	verifyGooglePlayPurchase,
@@ -17,6 +18,7 @@ const {
 const router = express.Router();
 
 router.get('/status', authenticateToken, getStatus);
+router.get('/catalog', authenticateToken, getCatalog);
 router.post('/apple/purchase-intent', authenticateToken, createApplePurchaseIntent);
 router.post('/google-play/purchase-intent', authenticateToken, createGooglePlayPurchaseIntent);
 router.post('/google-play/verify-purchase', authenticateToken, verifyGooglePlayPurchase);

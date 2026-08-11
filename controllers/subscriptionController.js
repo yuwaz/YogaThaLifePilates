@@ -17,6 +17,10 @@ const {
   normalizePurchaseToken,
   verifyGooglePlayPurchaseForStudio,
 } = require('../services/googlePlayPurchaseVerificationService');
+const {
+  SubscriptionCatalogConfigurationError,
+  getSubscriptionCatalog,
+} = require('../services/subscriptionCatalogService');
 
 async function getStatus(req, res) {
   try {
@@ -33,6 +37,27 @@ async function getStatus(req, res) {
     return res.json(subscriptionService.normalizeSubscriptionResponse(studio));
   } catch (error) {
     return res.status(500).json({ error: 'Server error' });
+  }
+}
+
+async function getCatalog(req, res) {
+  try {
+    const studioId = req && req.user ? req.user.studioId : undefined;
+    if (!Number.isInteger(studioId) || studioId <= 0) {
+      return res.sendStatus(403);
+    }
+
+    return res.status(200).json(getSubscriptionCatalog());
+  } catch (error) {
+    if (error instanceof SubscriptionCatalogConfigurationError) {
+      return res.status(error.httpStatus || 500).json({
+        error: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      error: 'SUBSCRIPTION_CATALOG_FETCH_FAILED',
+    });
   }
 }
 
@@ -292,6 +317,7 @@ async function verifyGooglePlayPurchase(req, res) {
 
 module.exports = {
   getStatus,
+  getCatalog,
   getManagementStatus,
   updateManagementStatus,
   createApplePurchaseIntent,
