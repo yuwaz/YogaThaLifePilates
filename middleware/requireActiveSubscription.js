@@ -1,41 +1,74 @@
-const { Studio } = require('../models');
-const subscriptionService = require('../services/subscriptionService');
+const {
+  resolveSubscriptionAccessDecision,
+} = require('../services/subscriptionAccessService');
 
-function sendSubscriptionRequired(res, studio) {
-  return res.status(403).json({
+function sendSubscriptionRequired(res, decision) {
+  return res.status(402).json({
     error: 'SUBSCRIPTION_REQUIRED',
-    subscriptionStatus: studio && typeof studio.subscriptionStatus !== 'undefined'
-      ? studio.subscriptionStatus
+    code: 'SUBSCRIPTION_REQUIRED',
+    subscriptionStatus: decision && typeof decision.subscriptionStatus === 'string'
+      ? decision.subscriptionStatus
       : null,
-    trialEndsAt: studio && typeof studio.trialEndsAt !== 'undefined'
-      ? studio.trialEndsAt
+    normalizedStatus: decision && typeof decision.normalizedStatus === 'string'
+      ? decision.normalizedStatus
       : null,
-    message: 'Studio subscription is not active.',
+    trialExpired: decision && typeof decision.trialExpired === 'boolean'
+      ? decision.trialExpired
+      : null,
+    recoveryAllowed: true,
+  });
+}
+
+function sendSubscriptionCheckUnavailable(res) {
+  return res.status(503).json({
+    error: 'SUBSCRIPTION_CHECK_UNAVAILABLE',
+    code: 'SUBSCRIPTION_CHECK_UNAVAILABLE',
   });
 }
 
 async function requireActiveSubscription(req, res, next) {
   try {
-    const studioId = req && req.user ? req.user.studioId : undefined;
+    if (!req || !req.user) {
+      return res.sendStatus(401);
+    }
+
+    const studioId = req.user.studioId;
     if (!Number.isInteger(studioId) || studioId <= 0) {
-      return res.sendStatus(403);
+      return sendSubscriptionCheckUnavailable(res);
     }
 
-    const studio = await Studio.findByPk(studioId);
-    if (!studio) {
-      return res.sendStatus(403);
+    const authContext = req && req.authContext && typeof req.authContext === 'object'
+      ? req.authContext
+      : null;
+
+    const hasExplicitStudioContext = Boolean(
+      authContext
+      && authContext.hasExplicitStudioContext === true
+      && authContext.studioIdSource === 'token'
+    );
+
+    if (!hasExplicitStudioContext) {
+      return sendSubscriptionCheckUnavailable(res);
     }
 
-    req.studio = studio;
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId,
+      now: new Date(),
+    });
 
-    const now = new Date();
-    if (subscriptionService.isSubscriptionActive(studio, now)) {
+    if (!decision || decision.checkUnavailable || decision.ok !== true) {
+      return sendSubscriptionCheckUnavailable(res);
+    }
+
+    req.subscriptionAccessDecision = decision;
+
+    if (decision.operationalAccess) {
       return next();
     }
 
-    return sendSubscriptionRequired(res, studio);
+    return sendSubscriptionRequired(res, decision);
   } catch (err) {
-    return res.sendStatus(403);
+    return sendSubscriptionCheckUnavailable(res);
   }
 }
 

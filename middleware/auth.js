@@ -12,6 +12,7 @@ function authenticateToken(req, res, next) {
     console.log('[DEBUG] Decoded JWT payload:', decoded);
     // Defensive: ensure permissions, assignedSalonIds are arrays if present as JSON strings
     let user = { ...decoded };
+    const hasExplicitStudioContext = Object.prototype.hasOwnProperty.call(user, 'studioId');
     if (typeof user.permissions === 'string') {
       try { user.permissions = JSON.parse(user.permissions); } catch { user.permissions = []; }
     }
@@ -19,7 +20,7 @@ function authenticateToken(req, res, next) {
       try { user.assignedSalonIds = JSON.parse(user.assignedSalonIds); } catch { user.assignedSalonIds = []; }
     }
 
-    if (typeof user.studioId === 'undefined') {
+    if (!hasExplicitStudioContext) {
       // Temporary saas backward compatibility for legacy tokens.
       user.studioId = 1;
     } else if (!Number.isInteger(user.studioId) || user.studioId <= 0) {
@@ -27,6 +28,10 @@ function authenticateToken(req, res, next) {
     }
 
     req.user = user;
+    req.authContext = {
+      hasExplicitStudioContext,
+      studioIdSource: hasExplicitStudioContext ? 'token' : 'fallback_legacy_default',
+    };
     console.log('[DEBUG] req.user after auth middleware:', req.user);
     next();
   });
