@@ -69,13 +69,28 @@ function buildDecision({
   };
 }
 
-function evaluateEntitlementDecision(entitlement) {
+function evaluateEntitlementDecision(entitlement, now = new Date()) {
   const normalizedStatus = normalizeString(entitlement && entitlement.normalizedStatus);
   if (!normalizedStatus || !NORMALIZED_STATUS_SET.has(normalizedStatus)) {
     return buildDecision({
       operationalAccess: false,
       decisionSource: 'entitlement',
       normalizedStatus: 'unknown',
+      subscriptionStatus: null,
+      trialExpired: null,
+    });
+  }
+
+  if (normalizedStatus === 'cancelled') {
+    const currentPeriodEnd = toDateOrNull(entitlement && entitlement.currentPeriodEnd);
+    const hasAuthoritativeFuturePeriodEnd = Boolean(
+      currentPeriodEnd && currentPeriodEnd.getTime() > now.getTime()
+    );
+
+    return buildDecision({
+      operationalAccess: hasAuthoritativeFuturePeriodEnd,
+      decisionSource: 'entitlement',
+      normalizedStatus,
       subscriptionStatus: null,
       trialExpired: null,
     });
@@ -177,7 +192,7 @@ async function resolveSubscriptionAccessDecision({
     });
 
     if (entitlement) {
-      return evaluateEntitlementDecision(entitlement);
+      return evaluateEntitlementDecision(entitlement, now);
     }
 
     const studio = await StudioModel.findByPk(studioId, {

@@ -135,10 +135,10 @@ async function run() {
     await studio.save({ fields: ['subscriptionStatus', 'trialEndsAt'] });
   }
 
-  async function seedEntitlement(studioId, normalizedStatus) {
+  async function seedEntitlement(studioId, normalizedStatus, overrides = {}) {
     await clearEntitlements(studioId);
 
-    return StudioSubscriptionEntitlement.create({
+    const base = {
       studioId,
       provider: 'google_play',
       plan: 'basic',
@@ -158,6 +158,11 @@ async function run() {
       environment: 'production',
       providerStateVersion: null,
       providerEventTime: new Date(),
+    };
+
+    return StudioSubscriptionEntitlement.create({
+      ...base,
+      ...overrides,
     });
   }
 
@@ -247,6 +252,104 @@ async function run() {
     assert.strictEqual(decision.operationalAccess, false);
   });
 
+  await test('11.1) normalized cancelled + authoritative future period end -> operational', async () => {
+    const fixedNow = new Date('2030-01-01T00:00:00.000Z');
+    await seedEntitlement(studioA.id, 'cancelled', {
+      currentPeriodEnd: addDays(fixedNow, 7),
+    });
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: fixedNow,
+    });
+
+    assert.strictEqual(decision.decisionSource, 'entitlement');
+    assert.strictEqual(decision.normalizedStatus, 'cancelled');
+    assert.strictEqual(decision.operationalAccess, true);
+  });
+
+  await test('11.2) normalized cancelled + boundary period end equal now -> denied', async () => {
+    const fixedNow = new Date('2030-01-02T00:00:00.000Z');
+    await seedEntitlement(studioA.id, 'cancelled', {
+      currentPeriodEnd: new Date(fixedNow.getTime()),
+    });
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: fixedNow,
+    });
+
+    assert.strictEqual(decision.operationalAccess, false);
+  });
+
+  await test('11.3) normalized cancelled + past period end -> denied', async () => {
+    const fixedNow = new Date('2030-01-03T00:00:00.000Z');
+    await seedEntitlement(studioA.id, 'cancelled', {
+      currentPeriodEnd: addDays(fixedNow, -1),
+    });
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: fixedNow,
+    });
+
+    assert.strictEqual(decision.operationalAccess, false);
+  });
+
+  await test('11.4) normalized cancelled + missing period end -> denied', async () => {
+    const fixedNow = new Date('2030-01-04T00:00:00.000Z');
+    await seedEntitlement(studioA.id, 'cancelled', {
+      currentPeriodEnd: null,
+    });
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: fixedNow,
+    });
+
+    assert.strictEqual(decision.operationalAccess, false);
+  });
+
+  await test('11.5) normalized cancelled + malformed period end -> denied safely', async () => {
+    const fixedNow = new Date('2030-01-05T00:00:00.000Z');
+    await clearEntitlements(studioA.id);
+    await sequelize.query(
+      `INSERT INTO StudioSubscriptionEntitlements (
+        studioId, provider, plan, normalizedStatus, providerProductId, providerSubscriptionId,
+        currentPeriodEnd, sourceLastUpdate, environment, createdAt, updatedAt
+      ) VALUES (?, 'google_play', 'basic', 'cancelled', 'p-cancelled-malformed', ?, 'not-a-date', 'verify_endpoint', 'production', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      { replacements: [studioA.id, `cancelled-malformed-${studioA.id}`] }
+    );
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: fixedNow,
+    });
+
+    assert.strictEqual(decision.decisionSource, 'entitlement');
+    assert.strictEqual(decision.normalizedStatus, 'cancelled');
+    assert.strictEqual(decision.operationalAccess, false);
+  });
+
+  await test('11.6) paused/expired/revoked/refunded remain denied even with future period end', async () => {
+    const fixedNow = new Date('2030-01-06T00:00:00.000Z');
+    const statuses = ['paused', 'expired', 'revoked', 'refunded'];
+
+    for (const status of statuses) {
+      await seedEntitlement(studioA.id, status, {
+        currentPeriodEnd: addDays(fixedNow, 5),
+      });
+
+      const decision = await resolveSubscriptionAccessDecision({
+        studioId: studioA.id,
+        now: fixedNow,
+      });
+
+      assert.strictEqual(decision.normalizedStatus, status);
+      assert.strictEqual(decision.operationalAccess, false);
+    }
+  });
+
   await test('12) normalized unknown -> denied safely', async () => {
     await clearEntitlements(studioA.id);
     await sequelize.query(
@@ -280,6 +383,39 @@ async function run() {
     assert.strictEqual(decision.decisionSource, 'entitlement');
     assert.strictEqual(decision.normalizedStatus, 'active');
     assert.strictEqual(decision.operationalAccess, true);
+  });
+
+  await test('14.1) cancelled entitlement with future paid-through overrides legacy cancelled', async () => {
+    const fixedNow = new Date('2030-01-07T00:00:00.000Z');
+    await setLegacyStatus(studioA, 'cancelled', null);
+    await seedEntitlement(studioA.id, 'cancelled', {
+      currentPeriodEnd: addDays(fixedNow, 2),
+    });
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: fixedNow,
+    });
+
+    assert.strictEqual(decision.decisionSource, 'entitlement');
+    assert.strictEqual(decision.normalizedStatus, 'cancelled');
+    assert.strictEqual(decision.operationalAccess, true);
+  });
+
+  await test('14.2) cancelled entitlement without trustworthy paid-through overrides legacy active to deny', async () => {
+    await setLegacyStatus(studioA, 'active', null);
+    await seedEntitlement(studioA.id, 'cancelled', {
+      currentPeriodEnd: null,
+    });
+
+    const decision = await resolveSubscriptionAccessDecision({
+      studioId: studioA.id,
+      now: new Date('2030-01-08T00:00:00.000Z'),
+    });
+
+    assert.strictEqual(decision.decisionSource, 'entitlement');
+    assert.strictEqual(decision.normalizedStatus, 'cancelled');
+    assert.strictEqual(decision.operationalAccess, false);
   });
 
   await test('15) no entitlement + valid legacy trial -> operational', async () => {
