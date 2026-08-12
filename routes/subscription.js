@@ -7,6 +7,8 @@ const {
 	createGooglePlayPurchaseIntent,
 	verifyGooglePlayPurchase,
 	verifyApplePurchase,
+	restoreAppleSubscription,
+	restoreGooglePlaySubscription,
 } = require('../controllers/subscriptionController');
 const {
 	handleAppleServerNotification,
@@ -23,6 +25,8 @@ router.post('/apple/purchase-intent', authenticateToken, createApplePurchaseInte
 router.post('/google-play/purchase-intent', authenticateToken, createGooglePlayPurchaseIntent);
 router.post('/google-play/verify-purchase', authenticateToken, verifyGooglePlayPurchase);
 router.post('/apple/verify-purchase', authenticateToken, verifyApplePurchase);
+router.post('/apple/restore', authenticateToken, restoreAppleSubscription);
+router.post('/google-play/restore', authenticateToken, restoreGooglePlaySubscription);
 router.post('/apple/notifications', handleAppleServerNotification);
 router.post('/google-play/notifications', handleGooglePlayRtdnNotification);
 

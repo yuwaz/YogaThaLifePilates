@@ -18,6 +18,14 @@ const {
   verifyGooglePlayPurchaseForStudio,
 } = require('../services/googlePlayPurchaseVerificationService');
 const {
+  AppleRestoreError,
+  restoreAppleSubscriptionForStudio,
+} = require('../services/appleRestoreService');
+const {
+  GooglePlayRestoreError,
+  restoreGooglePlaySubscriptionForStudio,
+} = require('../services/googlePlayRestoreService');
+const {
   SubscriptionCatalogConfigurationError,
   getSubscriptionCatalog,
 } = require('../services/subscriptionCatalogService');
@@ -229,6 +237,33 @@ async function verifyApplePurchase(req, res) {
   }
 }
 
+async function restoreAppleSubscription(req, res) {
+  try {
+    const studioId = req && req.user ? req.user.studioId : undefined;
+    if (!Number.isInteger(studioId) || studioId <= 0) {
+      return res.sendStatus(403);
+    }
+
+    const result = await restoreAppleSubscriptionForStudio({
+      studioId,
+      body: req && req.body,
+      now: new Date(),
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AppleRestoreError) {
+      return res.status(error.httpStatus || 400).json({
+        error: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      error: 'APPLE_RESTORE_FAILED',
+    });
+  }
+}
+
 async function createGooglePlayPurchaseIntent(req, res) {
   try {
     const studioId = req && req.user ? req.user.studioId : undefined;
@@ -315,6 +350,33 @@ async function verifyGooglePlayPurchase(req, res) {
   }
 }
 
+async function restoreGooglePlaySubscription(req, res) {
+  try {
+    const studioId = req && req.user ? req.user.studioId : undefined;
+    if (!Number.isInteger(studioId) || studioId <= 0) {
+      return res.sendStatus(403);
+    }
+
+    const result = await restoreGooglePlaySubscriptionForStudio({
+      studioId,
+      body: req && req.body,
+      now: new Date(),
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof GooglePlayRestoreError) {
+      return res.status(error.httpStatus || 400).json({
+        error: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      error: 'GOOGLE_PLAY_RESTORE_FAILED',
+    });
+  }
+}
+
 module.exports = {
   getStatus,
   getCatalog,
@@ -322,6 +384,8 @@ module.exports = {
   updateManagementStatus,
   createApplePurchaseIntent,
   verifyApplePurchase,
+  restoreAppleSubscription,
   createGooglePlayPurchaseIntent,
   verifyGooglePlayPurchase,
+  restoreGooglePlaySubscription,
 };
