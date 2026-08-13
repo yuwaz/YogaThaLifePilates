@@ -1,10 +1,12 @@
 const express = require('express');
 const { authenticateToken, authorizeRoles, authorizeActionPermission } = require('../../middleware/auth');
 const expenseController = require('../../controllers/expenseController');
+const requireActiveSubscription = require('../../middleware/requireActiveSubscription');
 
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(requireActiveSubscription);
 
 router.get('/', authorizeRoles(['admin', 'instructor']), expenseController.getExpenses);
 router.get('/:id', authorizeRoles(['admin', 'instructor']), expenseController.getExpense);

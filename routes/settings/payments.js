@@ -1,10 +1,12 @@
 const express = require('express');
 const { authenticateToken, authorizeRoles } = require('../../middleware/auth');
 const paymentController = require('../../controllers/paymentController');
+const requireActiveSubscription = require('../../middleware/requireActiveSubscription');
 
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(requireActiveSubscription);
 
 // GET all payments
 router.get('/', authorizeRoles(['admin', 'instructor']), paymentController.getPayments);

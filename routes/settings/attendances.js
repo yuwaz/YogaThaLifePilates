@@ -1,5 +1,6 @@
 const express = require('express');
 const { authenticateToken } = require('../../middleware/auth');
+const requireActiveSubscription = require('../../middleware/requireActiveSubscription');
 // Custom middleware for attendance permissions
 function attendancePermission(requiredPermission) {
   return (req, res, next) => {
@@ -57,6 +58,7 @@ const {
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(requireActiveSubscription);
 
 
 // GET: restrict to assigned salons for instructors

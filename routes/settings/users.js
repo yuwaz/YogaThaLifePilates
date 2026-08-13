@@ -1,10 +1,12 @@
 const express = require('express');
 const controller = require('../../controllers/userController');
 const { authenticateToken, authorizeRoles, authorizePagePermission } = require('../../middleware/auth');
+const requireActiveSubscription = require('../../middleware/requireActiveSubscription');
 
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(requireActiveSubscription);
 
 function canAccessInstructorReference(req, res, next) {
 	if (req.user.role === 'admin') return next();
