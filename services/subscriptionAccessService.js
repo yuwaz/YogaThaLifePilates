@@ -1,4 +1,5 @@
-const { Studio, StudioSubscriptionEntitlement } = require('../models');
+const { Studio, StudioSubscriptionEntitlement, StudioManualSubscriptionOverride } = require('../models');
+const { SUBSCRIPTION_STATUSES } = require('../models/studioMetadata');
 const {
   NORMALIZED_SUBSCRIPTION_STATUSES,
 } = require('../models/subscriptionInfrastructureMetadata');
@@ -12,6 +13,7 @@ const ENFORCEMENT_OPERATIONAL_NORMALIZED_STATUSES = Object.freeze([
 
 const NORMALIZED_STATUS_SET = new Set(NORMALIZED_SUBSCRIPTION_STATUSES);
 const ENFORCEMENT_OPERATIONAL_SET = new Set(ENFORCEMENT_OPERATIONAL_NORMALIZED_STATUSES);
+const LEGACY_STATUS_SET = new Set(SUBSCRIPTION_STATUSES);
 
 function normalizeString(value) {
   if (typeof value !== 'string') {
@@ -67,6 +69,16 @@ function buildDecision({
     subscriptionStatus,
     trialExpired,
   };
+}
+
+function buildDeniedManualOverrideDecision(subscriptionStatus = 'unknown') {
+  return buildDecision({
+    operationalAccess: false,
+    decisionSource: 'manual_override',
+    normalizedStatus: null,
+    subscriptionStatus,
+    trialExpired: null,
+  });
 }
 
 function evaluateEntitlementDecision(entitlement, now = new Date()) {
@@ -168,6 +180,97 @@ function evaluateLegacyStudioDecision(studio, now = new Date()) {
   });
 }
 
+function evaluateManualOverrideDecision(overrideRecord, baseStudio, now = new Date()) {
+  const subscriptionStatus = normalizeString(overrideRecord && overrideRecord.subscriptionStatus);
+  if (!subscriptionStatus || !LEGACY_STATUS_SET.has(subscriptionStatus)) {
+    return buildDeniedManualOverrideDecision('unknown');
+  }
+
+  if (subscriptionStatus === 'active') {
+    return buildDecision({
+      operationalAccess: true,
+      decisionSource: 'manual_override',
+      normalizedStatus: null,
+      subscriptionStatus,
+      trialExpired: null,
+    });
+  }
+
+  if (subscriptionStatus === 'trial') {
+    const trialEndsAt = toDateOrNull(overrideRecord && overrideRecord.expiresAt)
+      || toDateOrNull(baseStudio && baseStudio.trialEndsAt);
+
+    if (!trialEndsAt) {
+      return buildDecision({
+        operationalAccess: false,
+        decisionSource: 'manual_override',
+        normalizedStatus: null,
+        subscriptionStatus,
+        trialExpired: null,
+      });
+    }
+
+    const trialExpired = now.getTime() > trialEndsAt.getTime();
+    return buildDecision({
+      operationalAccess: !trialExpired,
+      decisionSource: 'manual_override',
+      normalizedStatus: null,
+      subscriptionStatus,
+      trialExpired,
+    });
+  }
+
+  return buildDecision({
+    operationalAccess: false,
+    decisionSource: 'manual_override',
+    normalizedStatus: null,
+    subscriptionStatus,
+    trialExpired: null,
+  });
+}
+
+function parseManualOverrideTemporalState(overrideRecord, now = new Date()) {
+  const effectiveFrom = toDateOrNull(overrideRecord && overrideRecord.effectiveFrom);
+  if (!effectiveFrom) {
+    return { invalid: true, isEffectiveNow: false, isExpired: false, isFuture: false };
+  }
+
+  const rawExpiresAt = overrideRecord && overrideRecord.expiresAt;
+  const hasExpiresAt = !(rawExpiresAt === null || typeof rawExpiresAt === 'undefined' || rawExpiresAt === '');
+  const expiresAt = hasExpiresAt ? toDateOrNull(rawExpiresAt) : null;
+  if (hasExpiresAt && !expiresAt) {
+    return { invalid: true, isEffectiveNow: false, isExpired: false, isFuture: false };
+  }
+
+  const nowMs = now.getTime();
+  const effectiveMs = effectiveFrom.getTime();
+  if (effectiveMs > nowMs) {
+    return { invalid: false, isEffectiveNow: false, isExpired: false, isFuture: true };
+  }
+
+  if (expiresAt && expiresAt.getTime() <= nowMs) {
+    return { invalid: false, isEffectiveNow: false, isExpired: true, isFuture: false };
+  }
+
+  return { invalid: false, isEffectiveNow: true, isExpired: false, isFuture: false };
+}
+
+function buildLegacyFallbackStudioWithOverrideBaseline(studio, overrideRecord) {
+  if (!overrideRecord) {
+    return studio;
+  }
+
+  const fallbackStatus = normalizeString(overrideRecord.previousSubscriptionStatus);
+  if (!fallbackStatus || !LEGACY_STATUS_SET.has(fallbackStatus)) {
+    return null;
+  }
+
+  return {
+    subscriptionStatus: fallbackStatus,
+    trialEndsAt: toDateOrNull(overrideRecord.previousTrialEndsAt),
+  };
+}
+
 async function resolveSubscriptionAccessDecision({
   studioId,
   now = new Date(),
@@ -179,8 +282,39 @@ async function resolveSubscriptionAccessDecision({
 
   const StudioModel = dependencies.StudioModel || Studio;
   const EntitlementModel = dependencies.EntitlementModel || StudioSubscriptionEntitlement;
+  const ManualOverrideModel = dependencies.ManualOverrideModel || StudioManualSubscriptionOverride;
 
   try {
+    const studio = await StudioModel.findByPk(studioId, {
+      attributes: ['id', 'subscriptionStatus', 'trialEndsAt'],
+    });
+
+    if (!studio) {
+      return buildUnavailableDecision();
+    }
+
+    const manualOverride = await ManualOverrideModel.findOne({
+      where: {
+        studioId,
+        revokedAt: null,
+      },
+      order: [
+        ['createdAt', 'DESC'],
+        ['id', 'DESC'],
+      ],
+    });
+
+    if (manualOverride) {
+      const temporalState = parseManualOverrideTemporalState(manualOverride, now);
+      if (temporalState.invalid) {
+        return buildDeniedManualOverrideDecision('unknown');
+      }
+
+      if (temporalState.isEffectiveNow) {
+        return evaluateManualOverrideDecision(manualOverride, studio, now);
+      }
+    }
+
     const entitlement = await EntitlementModel.findOne({
       where: { studioId },
       order: [
@@ -195,12 +329,13 @@ async function resolveSubscriptionAccessDecision({
       return evaluateEntitlementDecision(entitlement, now);
     }
 
-    const studio = await StudioModel.findByPk(studioId, {
-      attributes: ['id', 'subscriptionStatus', 'trialEndsAt'],
-    });
+    if (manualOverride) {
+      const legacyFallbackStudio = buildLegacyFallbackStudioWithOverrideBaseline(studio, manualOverride);
+      if (legacyFallbackStudio) {
+        return evaluateLegacyStudioDecision(legacyFallbackStudio, now);
+      }
 
-    if (!studio) {
-      return buildUnavailableDecision();
+      return buildDeniedManualOverrideDecision('unknown');
     }
 
     return evaluateLegacyStudioDecision(studio, now);

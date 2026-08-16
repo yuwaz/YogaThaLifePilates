@@ -813,7 +813,8 @@ async function run() {
       assert.strictEqual(response.statusCode, 404);
 
       const appSource = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
-      assert.strictEqual(appSource.includes('/backoffice'), false);
+      assert.ok(appSource.includes('BACKOFFICE_ENABLED'));
+      assert.ok(appSource.includes("['1', 'true']"));
     });
 
     await test('41) instructor operational route is blocked when tenant is ineffective', async () => {

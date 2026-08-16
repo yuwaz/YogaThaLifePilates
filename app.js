@@ -21,6 +21,9 @@ const manualCardUsagesRoutes = require('./routes/settings/manual-card-usages');
 const studioOnboardingRoutes = require('./routes/settings/studio-onboarding');
 const subscriptionRoutes = require('./routes/subscription');
 const subscriptionSettingsRoutes = require('./routes/settings/subscription');
+const backofficeAuthRoutes = require('./routes/backoffice/auth');
+const backofficeOpsRoutes = require('./routes/backoffice/ops');
+const backofficeStudiosRoutes = require('./routes/backoffice/studios');
 
 const app = express();
 // Apply CORS globally before all routes
@@ -58,6 +61,16 @@ app.use('/settings/subscription', subscriptionSettingsRoutes);
 app.use('/settings/memberTypes', memberTypesRoutes);
 app.use('/settings/paymentMethods', paymentMethodsRoutes);
 app.use('/settings/reports', reportsRoutes);
+
+const backofficeEnabled = ['1', 'true'].includes(
+  String(process.env.BACKOFFICE_ENABLED || '').trim().toLowerCase()
+);
+
+if (backofficeEnabled) {
+  app.use('/backoffice/auth', backofficeAuthRoutes);
+  app.use('/backoffice/ops', backofficeOpsRoutes);
+  app.use('/backoffice/studios', backofficeStudiosRoutes);
+}
 
 // Health check
 app.get('/', (req, res) => res.send('Fitness Studio API running'));

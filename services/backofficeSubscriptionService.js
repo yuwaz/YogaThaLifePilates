@@ -2,9 +2,11 @@ const {
   sequelize,
   Studio,
   StudioSubscriptionEntitlement,
+  StudioManualSubscriptionOverride,
   AppleSubscriptionTransaction,
   GooglePlaySubscriptionTransaction,
 } = require('../models');
+const { resolveSubscriptionAccessDecision } = require('./subscriptionAccessService');
 
 function createValidationError(message) {
   const error = new Error(message);
@@ -105,6 +107,72 @@ function groupCountRows(rows, keyField, valueField) {
   return grouped;
 }
 
+function toDateOrNull(value) {
+  if (value === null || typeof value === 'undefined' || value === '') {
+    return null;
+  }
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function sanitizeManualOverride(overrideLike) {
+  if (!overrideLike) return null;
+  const override = overrideLike && typeof overrideLike.get === 'function'
+    ? overrideLike.get({ plain: true })
+    : overrideLike;
+
+  return {
+    id: override.id,
+    studioId: override.studioId,
+    subscriptionPlan: override.subscriptionPlan,
+    subscriptionStatus: override.subscriptionStatus,
+    effectiveFrom: override.effectiveFrom || null,
+    expiresAt: override.expiresAt || null,
+    reason: override.reason,
+    createdByPlatformAdminId: override.createdByPlatformAdminId,
+    revokedAt: override.revokedAt || null,
+    revokedByPlatformAdminId: override.revokedByPlatformAdminId || null,
+    revokeReason: override.revokeReason || null,
+    createdAt: override.createdAt || null,
+    updatedAt: override.updatedAt || null,
+  };
+}
+
+function evaluateManualOverrideState(override, now = new Date()) {
+  if (!override) {
+    return 'none';
+  }
+
+  if (override.revokedAt) {
+    return 'revoked';
+  }
+
+  const effectiveFrom = toDateOrNull(override.effectiveFrom);
+  if (!effectiveFrom) {
+    return 'invalid';
+  }
+
+  const expiresAt = toDateOrNull(override.expiresAt);
+  if (override.expiresAt && !expiresAt) {
+    return 'invalid';
+  }
+
+  if (effectiveFrom.getTime() > now.getTime()) {
+    return 'scheduled';
+  }
+
+  if (expiresAt && expiresAt.getTime() <= now.getTime()) {
+    return 'expired';
+  }
+
+  return 'effective';
+}
+
 async function getAppleInboxHealthByStudio(studioId) {
   const [rows] = await sequelize.query(
     `
@@ -158,6 +226,9 @@ async function getStudioSubscriptionOverview(studioId) {
 
   const [
     entitlements,
+    latestManualOverride,
+    activeManualOverride,
+    accessDecision,
     appleTransactionCount,
     latestAppleTransaction,
     appleInboxHealthRows,
@@ -183,6 +254,27 @@ async function getStudioSubscriptionOverview(studioId) {
         ['updatedAt', 'DESC'],
         ['id', 'DESC'],
       ],
+    }),
+    StudioManualSubscriptionOverride.findOne({
+      where: { studioId: normalizedStudioId },
+      order: [
+        ['createdAt', 'DESC'],
+        ['id', 'DESC'],
+      ],
+    }),
+    StudioManualSubscriptionOverride.findOne({
+      where: {
+        studioId: normalizedStudioId,
+        revokedAt: null,
+      },
+      order: [
+        ['createdAt', 'DESC'],
+        ['id', 'DESC'],
+      ],
+    }),
+    resolveSubscriptionAccessDecision({
+      studioId: normalizedStudioId,
+      now: new Date(),
     }),
     AppleSubscriptionTransaction.count({ where: { studioId: normalizedStudioId } }),
     AppleSubscriptionTransaction.findOne({
@@ -252,6 +344,24 @@ async function getStudioSubscriptionOverview(studioId) {
       trialEndsAt: studio.trialEndsAt,
     },
     entitlementSummary: (entitlements || []).map(sanitizeEntitlement),
+    manualOverride: {
+      latest: sanitizeManualOverride(latestManualOverride),
+      activeUnrevoked: sanitizeManualOverride(activeManualOverride),
+      latestState: evaluateManualOverrideState(latestManualOverride, new Date()),
+    },
+    accessDecision: {
+      decisionSource: accessDecision ? accessDecision.decisionSource : null,
+      operationalAccess: accessDecision ? Boolean(accessDecision.operationalAccess) : false,
+      normalizedStatus: accessDecision && typeof accessDecision.normalizedStatus === 'string'
+        ? accessDecision.normalizedStatus
+        : null,
+      subscriptionStatus: accessDecision && typeof accessDecision.subscriptionStatus === 'string'
+        ? accessDecision.subscriptionStatus
+        : null,
+      trialExpired: accessDecision && typeof accessDecision.trialExpired === 'boolean'
+        ? accessDecision.trialExpired
+        : null,
+    },
     apple: {
       transactionCount: Number(appleTransactionCount || 0),
       latestTransaction: sanitizeAppleTransaction(latestAppleTransaction),
