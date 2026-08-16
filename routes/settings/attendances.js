@@ -5,10 +5,6 @@ const requireActiveSubscription = require('../../middleware/requireActiveSubscri
 function attendancePermission(requiredPermission) {
   return (req, res, next) => {
     const { role, permissions, assignedSalonIds } = req.user;
-    console.log('[DEBUG] role:', role);
-    console.log('[DEBUG] permissions:', permissions, 'type:', Array.isArray(permissions) ? 'array' : typeof permissions);
-    console.log('[DEBUG] assignedSalonIds:', assignedSalonIds);
-    console.log('[DEBUG] requiredPermission:', requiredPermission);
 
     // Ensure permissions is always an array
     let perms = permissions;
@@ -31,20 +27,17 @@ function attendancePermission(requiredPermission) {
     }
     if (role === 'instructor') {
       if (!perms.includes(requiredPermission)) {
-        console.log('[DEBUG] 403: Instructor missing permission:', requiredPermission, 'actual:', perms);
         return res.status(403).json({ error: 'Forbidden: missing permission', perms, requiredPermission });
       }
       // For POST, check salonId in assignedSalonIds
       if (req.method === 'POST') {
         const salonId = req.body.salonId;
         if (!salonId || !assignedSalonIds.includes(Number(salonId))) {
-          console.log('[DEBUG] 403: Instructor not assigned to salon:', salonId);
           return res.status(403).json({ error: 'Forbidden: not assigned to salon' });
         }
       }
       return next();
     }
-    console.log('[DEBUG] 403: Role not allowed:', role);
     return res.status(403).json({ error: 'Forbidden: role not allowed' });
   };
 }
@@ -64,7 +57,6 @@ router.use(requireActiveSubscription);
 // GET: restrict to assigned salons for instructors
 
 router.get('/', (req, res, next) => {
-  console.log('[DEBUG] req.user before permission middleware:', req.user);
   next();
 }, attendancePermission('attendances'), (req, res, next) => {
   if (req.user.role === 'instructor') {
@@ -76,7 +68,6 @@ router.get('/', (req, res, next) => {
 
 // POST: instructor must have salonId in assignedSalonIds
 router.post('/', (req, res, next) => {
-  console.log('[DEBUG] req.user before permission middleware:', req.user);
   next();
 }, attendancePermission('attendances'), addAttendance);
 

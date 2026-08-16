@@ -49,20 +49,12 @@ router.post('/login', async (req, res) => {
     }
 
     const user = await User.findOne({ where: { studioId: studio.id, username } });
-    console.log('User exists:', !!user);
-    if (user) {
-      console.log('Stored username:', user.username);
-    }
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const valid = await bcrypt.compare(password, user.password);
-    console.log('bcrypt.compare result:', valid);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
     const payload = buildAuthPayload(user);
-    console.log('[Auth] DB permissions:', payload.permissions);
-    console.log('[Auth] JWT permissions:', payload.permissions);
     const token = signAuthToken(payload);
-    console.log('[Auth] response permissions:', payload.permissions);
     res.json({
       token,
       role: payload.role,
@@ -72,7 +64,7 @@ router.post('/login', async (req, res) => {
       studioCode: studio.studioCode,
     });
   } catch (err) {
-    console.error('Login error:', err);
+    console.error('Login error:', err && err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

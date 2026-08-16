@@ -274,7 +274,6 @@ exports.createMember = async (req, res) => {
 exports.getMembers = async (req, res) => {
   try {
     console.log('[DEBUG] Entering getMembers endpoint');
-    console.log('[DEBUG] req.user:', req.user);
     console.log('[DEBUG] req.query:', req.query);
     const onlyMyMembers = req.query.onlyMyMembers === 'true';
     let where = { isActive: true };
@@ -433,8 +432,6 @@ exports.updateMember = async (req, res) => {
     if (memberTypeId) member.memberTypeId = relationValidation.memberTypeId;
     if (assignedSalonIds) member.assignedSalonIds = relationValidation.assignedSalonIds;
     if (assignedInstructorId !== undefined) member.assignedInstructorId = relationValidation.assignedInstructorId;
-    const measurementInput = pickMeasurementFields(req.body);
-    console.log('[MemberUpdate] req.body measurements:', measurementInput);
     const measurementUpdates = {};
     for (const field of measurementFields) {
       const normalized = normalizeNullableDecimalField(req.body[field]);
@@ -449,7 +446,6 @@ exports.updateMember = async (req, res) => {
     await member.save();
     const savedMember = await Member.findOne({ where: withStudioWhere(req, { id: member.id }) });
     if (!savedMember) return res.sendStatus(404);
-    console.log('[MemberUpdate] saved member measurements:', pickMeasurementFields(savedMember.toJSON()));
     res.json(savedMember);
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });

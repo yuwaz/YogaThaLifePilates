@@ -9,7 +9,6 @@ function authenticateToken(req, res, next) {
   if (!token) return res.sendStatus(401);
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) return res.sendStatus(403);
-    console.log('[DEBUG] Decoded JWT payload:', decoded);
     // Defensive: ensure permissions, assignedSalonIds are arrays if present as JSON strings
     let user = { ...decoded };
     const hasExplicitStudioContext = Object.prototype.hasOwnProperty.call(user, 'studioId');
@@ -32,7 +31,6 @@ function authenticateToken(req, res, next) {
       hasExplicitStudioContext,
       studioIdSource: hasExplicitStudioContext ? 'token' : 'fallback_legacy_default',
     };
-    console.log('[DEBUG] req.user after auth middleware:', req.user);
     next();
   });
 }

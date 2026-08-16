@@ -591,8 +591,6 @@ exports.getReservations = async (req, res) => {
   if ((startDate && !isValidDate(startDate)) || (endDate && !isValidDate(endDate))) {
     return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
   }
-  console.log('[DEBUG] req.user.id:', req.user.id);
-  console.log('[DEBUG] req.user.role:', req.user.role);
   console.log('[DEBUG] onlyMyMembers query:', onlyMyMembers);
   let where = {};
   let memberWhere = {};
