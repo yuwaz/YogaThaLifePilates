@@ -6,5 +6,6 @@ const router = express.Router();
 
 router.use(authenticatePlatformAdmin);
 router.get('/summary', backofficeOpsController.getPlatformSummary);
+router.get('/audit-logs', backofficeOpsController.listPlatformAuditLogs);
 
 module.exports = router;

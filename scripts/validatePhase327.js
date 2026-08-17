@@ -373,6 +373,143 @@ async function run() {
       assert.strictEqual(response.body.error, 'PLATFORM_ACCESS_DENIED');
     });
 
+    const auditNewestAt = new Date(Date.now() - 1000);
+    const auditMiddleAt = new Date(Date.now() - 2000);
+    const auditOldestAt = new Date(Date.now() - 3000);
+    await PlatformAuditLog.create({
+      eventId: 'phase327-audit-safe',
+      actorPlatformAdminId: activeAdmin.id,
+      actionType: 'studio.inspect',
+      targetType: 'studio',
+      targetId: String(activeStudio.id),
+      studioId: activeStudio.id,
+      reason: 'Safe audit fixture',
+      requestId: 'phase327-audit-request',
+      ip: '127.0.0.1',
+      userAgent: 'phase327-validator',
+      beforeSnapshot: { subscriptionStatus: 'trial', nested: { visible: 'yes' } },
+      afterSnapshot: { subscriptionStatus: 'active' },
+      createdAt: auditMiddleAt,
+      updatedAt: auditMiddleAt,
+    });
+    await sequelize.query(
+      `INSERT INTO PlatformAuditLogs
+        (eventId, actorPlatformAdminId, actionType, targetType, targetId, studioId, reason,
+         requestId, ip, userAgent, beforeSnapshot, afterSnapshot, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      {
+        replacements: [
+          'phase327-audit-unsafe', activeAdmin.id, 'studio.suspend', 'studio', String(suspendedStudio.id),
+          suspendedStudio.id, 'Unsafe legacy fixture', 'phase327-unsafe-request', '127.0.0.1',
+          'phase327-validator', JSON.stringify({ passwordHash: 'hidden', nested: { token: 'hidden', safe: 'kept' } }),
+          JSON.stringify({ Authorization: 'Bearer hidden', safe: 'kept' }), auditNewestAt.toISOString(), auditNewestAt.toISOString(),
+        ],
+      }
+    );
+    await PlatformAuditLog.create({
+      eventId: 'phase327-audit-old',
+      actorPlatformAdminId: disabledAdmin.id,
+      actionType: 'platform.inspect',
+      targetType: 'platform',
+      targetId: 'platform',
+      studioId: null,
+      reason: 'Old audit fixture',
+      beforeSnapshot: null,
+      afterSnapshot: null,
+      createdAt: auditOldestAt,
+      updatedAt: auditOldestAt,
+    });
+
+    await test('12) unauthenticated audit route returns 401', async () => {
+      const response = await requestJson(enabledServer.baseUrl, 'GET', '/backoffice/ops/audit-logs');
+      assert.strictEqual(response.status, 401);
+      assert.strictEqual(response.body.error, 'PLATFORM_AUTH_REQUIRED');
+    });
+
+    await test('13) tenant JWT is rejected from audit route', async () => {
+      const response = await requestJson(enabledServer.baseUrl, 'GET', '/backoffice/ops/audit-logs', { token: tenantToken });
+      assert.strictEqual(response.status, 401);
+    });
+
+    await test('14) active PlatformAdmin receives default paginated audit logs safely', async () => {
+      const response = await requestJson(enabledServer.baseUrl, 'GET', '/backoffice/ops/audit-logs', { token: activeAdminToken });
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.body.pagination.page, 1);
+      assert.strictEqual(response.body.pagination.limit, 25);
+      assert.strictEqual(response.body.pagination.total, 3);
+      assert.strictEqual(response.body.pagination.totalPages, 1);
+      assert.strictEqual(response.body.items[0].eventId, 'phase327-audit-unsafe');
+      assert.strictEqual(response.body.items[0].beforeSnapshot.nested.safe, 'kept');
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(response.body.items[0].beforeSnapshot, 'passwordHash'), false);
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(response.body.items[0].beforeSnapshot.nested, 'token'), false);
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(response.body.items[0].afterSnapshot, 'Authorization'), false);
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(response.body.items[0], 'passwordHash'), false);
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(response.body.items[0], 'jwt'), false);
+      assert.strictEqual(response.body.items[0].actor.email, 'admin@example.com');
+      assert.strictEqual(response.body.items[0].studio, null);
+    });
+
+    await test('15) inactive PlatformAdmin is denied from audit route', async () => {
+      const response = await requestJson(enabledServer.baseUrl, 'GET', '/backoffice/ops/audit-logs', { token: disabledAdminToken });
+      assert.strictEqual(response.status, 403);
+      assert.strictEqual(response.body.error, 'PLATFORM_ACCESS_DENIED');
+    });
+
+    await test('16) audit pagination, ordering, and filters work', async () => {
+      const pageResponse = await requestJson(
+        enabledServer.baseUrl,
+        'GET',
+        `/backoffice/ops/audit-logs?page=2&limit=1`,
+        { token: activeAdminToken }
+      );
+      assert.strictEqual(pageResponse.status, 200);
+      assert.strictEqual(pageResponse.body.items.length, 1);
+      assert.strictEqual(pageResponse.body.items[0].eventId, 'phase327-audit-safe');
+      assert.strictEqual(pageResponse.body.pagination.total, 3);
+      assert.strictEqual(pageResponse.body.pagination.totalPages, 3);
+
+      const filtered = await requestJson(
+        enabledServer.baseUrl,
+        'GET',
+        `/backoffice/ops/audit-logs?studioId=${suspendedStudio.id}&actorPlatformAdminId=${activeAdmin.id}&action=studio.suspend&targetType=studio`,
+        { token: activeAdminToken }
+      );
+      assert.strictEqual(filtered.status, 200);
+      assert.strictEqual(filtered.body.pagination.total, 1);
+      assert.strictEqual(filtered.body.items[0].eventId, 'phase327-audit-unsafe');
+
+      const dateFiltered = await requestJson(
+        enabledServer.baseUrl,
+        'GET',
+        '/backoffice/ops/audit-logs?from=2020-01-01T00:00:00.000Z&to=2030-01-01T00:00:00.000Z',
+        { token: activeAdminToken }
+      );
+      assert.strictEqual(dateFiltered.status, 200);
+      assert.strictEqual(dateFiltered.body.pagination.total, 3);
+    });
+
+    await test('17) malformed audit query and excessive limit are rejected safely', async () => {
+      const invalidLimit = await requestJson(enabledServer.baseUrl, 'GET', '/backoffice/ops/audit-logs?limit=101', { token: activeAdminToken });
+      assert.strictEqual(invalidLimit.status, 400);
+      assert.strictEqual(invalidLimit.body.error, 'BACKOFFICE_INVALID_REQUEST');
+
+      const invalidDate = await requestJson(enabledServer.baseUrl, 'GET', '/backoffice/ops/audit-logs?from=not-a-date', { token: activeAdminToken });
+      assert.strictEqual(invalidDate.status, 400);
+      assert.strictEqual(invalidDate.body.error, 'BACKOFFICE_INVALID_REQUEST');
+    });
+
+    await test('18) audit GET has no side effects and preserves unrelated logs', async () => {
+      const beforeCount = await PlatformAuditLog.count();
+      const beforeAdmin = await PlatformAdmin.findByPk(activeAdmin.id, { raw: true });
+      const beforeStudio = await Studio.findByPk(activeStudio.id, { raw: true });
+      const response = await requestJson(enabledServer.baseUrl, 'GET', `/backoffice/ops/audit-logs?studioId=${activeStudio.id}`, { token: activeAdminToken });
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.body.pagination.total, 1);
+      assert.strictEqual(await PlatformAuditLog.count(), beforeCount);
+      assert.deepStrictEqual(await PlatformAdmin.findByPk(activeAdmin.id, { raw: true }), beforeAdmin);
+      assert.deepStrictEqual(await Studio.findByPk(activeStudio.id, { raw: true }), beforeStudio);
+    });
+
     await test('12) PlatformAdmin login failure does not reveal existence', async () => {
       const missingAdmin = await requestJson(enabledServer.baseUrl, 'POST', '/backoffice/auth/login', {
         body: { email: 'missing@example.com', password: 'WrongPassword!123' },
