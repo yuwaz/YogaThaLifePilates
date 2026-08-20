@@ -22,6 +22,7 @@ function canAccessInstructorReference(req, res, next) {
 }
 
 router.get('/instructors', canAccessInstructorReference, controller.getInstructors);
+router.patch('/instructors/:id/password', authorizeRoles(['admin']), controller.resetInstructorPassword);
 
 router.get('/', authorizePagePermission('settings'), controller.getUsers);
 router.get('/:id', authorizeRoles(['admin']), controller.getUser);

@@ -139,6 +139,32 @@ exports.getUser = async (req, res) => {
   res.json(user);
 };
 
+exports.resetInstructorPassword = async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword) {
+      return res.status(400).json({ error: 'Missing required fields: newPassword' });
+    }
+    if (typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'Invalid field types' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'newPassword must be at least 6 characters' });
+    }
+
+    const instructor = await User.findOne({
+      where: withStudioWhere(req, { id: req.params.id, role: 'instructor' }),
+    });
+    if (!instructor) return res.sendStatus(404);
+
+    instructor.password = await bcrypt.hash(newPassword, 10);
+    await instructor.save({ fields: ['password'] });
+    return res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message || 'Server error' });
+  }
+};
+
 exports.updateUser = async (req, res) => {
   try {
     const { username, password, newPassword, role, assignedSalonIds, permissions, groupSessionFee, individualSessionFee } = req.body;
