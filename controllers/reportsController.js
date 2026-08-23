@@ -467,6 +467,12 @@ exports.getReports = async (req, res) => {
     const totalRevenue = soldPackageRevenue + totalCardBasedRevenue;
     const totalIncome = soldPackageRevenue + cardBasedRevenue;
     const netProfit = totalIncome - totalExpenses;
+    // Estimated Instructor Cost: sum of the already-computed instructorSessionBreakdown payouts (no new queries).
+    const estimatedInstructorCost = instructorSessionBreakdown.reduce(
+      (sum, row) => sum + Number(row.totalInstructorPayout || 0),
+      0
+    );
+    const estimatedNetProfit = totalIncome - totalExpenses - estimatedInstructorCost;
     // [Reports] totalRevenue debug log
     console.log('[Reports] totalRevenue:', totalRevenue);
     console.log('[Reports] totalIncome:', totalIncome);
@@ -497,7 +503,9 @@ exports.getReports = async (req, res) => {
         totalRevenue, // Toplam Ciro
         totalIncome,
         totalExpenses,
-        netProfit
+        netProfit,
+        estimatedInstructorCost,
+        estimatedNetProfit
       },
       memberTypeBreakdown,
       packageBreakdown,
