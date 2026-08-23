@@ -259,3 +259,37 @@ exports.deleteUser = async (req, res) => {
   await user.destroy();
   res.sendStatus(204);
 };
+
+// PATCH /settings/users/:id/fees — fee-only update for teaching-capable Users (instructor or the Studio owner).
+exports.updateUserFees = async (req, res) => {
+  try {
+    const { groupSessionFee, individualSessionFee } = req.body;
+    if (groupSessionFee === undefined || individualSessionFee === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: groupSessionFee, individualSessionFee' });
+    }
+    if (isNaN(Number(groupSessionFee)) || Number(groupSessionFee) < 0) {
+      return res.status(400).json({ error: 'groupSessionFee must be a non-negative number' });
+    }
+    if (isNaN(Number(individualSessionFee)) || Number(individualSessionFee) < 0) {
+      return res.status(400).json({ error: 'individualSessionFee must be a non-negative number' });
+    }
+
+    const studioId = getAuthenticatedStudioId(req);
+    const user = await User.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
+    if (!user) return res.sendStatus(404);
+
+    const ownerUserId = await getStudioOwnerUserId(studioId);
+    const isTeachingCapable = user.role === 'instructor' || (ownerUserId !== null && ownerUserId === user.id);
+    if (!isTeachingCapable) {
+      return res.sendStatus(404);
+    }
+
+    user.groupSessionFee = Number(groupSessionFee);
+    user.individualSessionFee = Number(individualSessionFee);
+    await user.save({ fields: ['groupSessionFee', 'individualSessionFee'] });
+
+    res.json(toSafeUserPayload(user));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message || 'Server error' });
+  }
+};
