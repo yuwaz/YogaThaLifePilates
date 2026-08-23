@@ -29,9 +29,9 @@ exports.createPayment = async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
     const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
-    if (!member) return res.status(404).json({ message: 'Payment not found' });
+    if (!member) return res.status(404).json({ message: 'Member not found' });
     const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
-    if (!paymentMethod) return res.status(404).json({ message: 'Payment not found' });
+    if (!paymentMethod) return res.status(404).json({ message: 'Payment method not found' });
     const payment = await Payment.create({ memberId, amount, paymentMethodId, date, studioId });
     member.totalDebt = Number(member.totalDebt) - Number(amount);
     await member.save();
@@ -59,7 +59,7 @@ exports.updatePayment = async (req, res) => {
     }
     if (paymentMethodId !== undefined) {
       const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
-      if (!paymentMethod) return res.status(404).json({ message: 'Payment not found' });
+      if (!paymentMethod) return res.status(404).json({ message: 'Payment method not found' });
       payment.paymentMethodId = paymentMethodId;
     }
     if (date !== undefined) payment.date = date;
