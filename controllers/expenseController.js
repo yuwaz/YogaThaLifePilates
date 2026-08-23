@@ -62,10 +62,10 @@ exports.createExpense = async (req, res) => {
     const { salonId, title, description, amount, category, date, paymentMethodId, notes } = req.body;
     const studioId = getAuthenticatedStudioId(req);
     const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
-    if (!salon) return res.status(404).json({ message: 'Expense not found' });
+    if (!salon) return res.status(404).json({ message: 'Salon not found' });
     if (paymentMethodId !== undefined && paymentMethodId !== null) {
       const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
-      if (!paymentMethod) return res.status(404).json({ message: 'Expense not found' });
+      if (!paymentMethod) return res.status(404).json({ message: 'Payment method not found' });
     }
     const expense = await Expense.create({
       salonId,
@@ -96,10 +96,10 @@ exports.updateExpense = async (req, res) => {
 
     const { salonId, title, description, amount, category, date, paymentMethodId, notes } = req.body;
     const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
-    if (!salon) return res.status(404).json({ message: 'Expense not found' });
+    if (!salon) return res.status(404).json({ message: 'Salon not found' });
     if (paymentMethodId !== undefined && paymentMethodId !== null) {
       const paymentMethod = await PaymentMethod.findOne({ where: withStudioWhere(req, { id: paymentMethodId }) });
-      if (!paymentMethod) return res.status(404).json({ message: 'Expense not found' });
+      if (!paymentMethod) return res.status(404).json({ message: 'Payment method not found' });
     }
     expense.salonId = salonId;
     expense.title = title;
