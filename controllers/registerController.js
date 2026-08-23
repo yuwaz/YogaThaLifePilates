@@ -95,6 +95,9 @@ exports.registerStudio = async (req, res) => {
           individualSessionFee: 0,
           studioId: createdStudio.id,
         }, { transaction: t });
+
+        createdStudio.ownerUserId = createdUser.id;
+        await createdStudio.save({ transaction: t });
       });
       break;
     } catch (err) {
@@ -146,6 +149,7 @@ exports.registerStudio = async (req, res) => {
         trialEndsAt: createdStudio.trialEndsAt,
         onboardingCompleted: Boolean(createdStudio.onboardingCompleted),
         onboardingStep: createdStudio.onboardingStep,
+        ownerUserId: createdStudio.ownerUserId,
       },
     });
   } catch (err) {

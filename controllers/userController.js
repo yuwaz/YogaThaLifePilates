@@ -2,6 +2,7 @@ const { User, Salon } = require('../models');
 const bcrypt = require('bcrypt');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
+const { getStudioOwnerUserId } = require('../services/studioOwnerService');
 
 function toSafeUserPayload(user) {
   const payload = user && typeof user.get === 'function' ? user.get({ plain: true }) : user;
@@ -123,10 +124,25 @@ exports.getUsers = async (req, res) => {
 };
 
 exports.getInstructors = async (req, res) => {
+  const studioId = getAuthenticatedStudioId(req);
+  const attributes = ['id', 'username', 'role', 'assignedSalonIds', 'permissions', 'groupSessionFee', 'individualSessionFee'];
   const instructors = await User.findAll({
     where: withStudioWhere(req, { role: 'instructor' }),
-    attributes: ['id', 'username', 'role', 'assignedSalonIds', 'permissions', 'groupSessionFee', 'individualSessionFee']
+    attributes,
   });
+
+  // The Studio owner admin is also teaching-capable; keep their real role: 'admin' (never lie about role).
+  const ownerUserId = await getStudioOwnerUserId(studioId);
+  if (ownerUserId) {
+    const owner = await User.findOne({
+      where: withStudioWhere(req, { id: ownerUserId, role: 'admin' }),
+      attributes,
+    });
+    if (owner) {
+      instructors.push(owner);
+    }
+  }
+
   res.json(instructors);
 };
 
@@ -170,6 +186,10 @@ exports.updateUser = async (req, res) => {
     const { username, password, newPassword, role, assignedSalonIds, permissions, groupSessionFee, individualSessionFee } = req.body;
     const user = await User.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!user) return res.sendStatus(404);
+    const ownerUserId = await getStudioOwnerUserId(getAuthenticatedStudioId(req));
+    if (ownerUserId === user.id && role && role !== 'admin') {
+      return res.status(400).json({ error: 'Studio owner role cannot be changed' });
+    }
     if (username && typeof username !== 'string') return res.status(400).json({ error: 'Invalid username type' });
     if (role && typeof role !== 'string') return res.status(400).json({ error: 'Invalid role type' });
     if (typeof newPassword !== 'undefined' && newPassword !== null && typeof newPassword !== 'string') {
@@ -232,6 +252,10 @@ exports.updateUser = async (req, res) => {
 exports.deleteUser = async (req, res) => {
   const user = await User.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
   if (!user) return res.sendStatus(404);
+  const ownerUserId = await getStudioOwnerUserId(getAuthenticatedStudioId(req));
+  if (ownerUserId === user.id) {
+    return res.status(400).json({ error: 'Studio owner cannot be deleted' });
+  }
   await user.destroy();
   res.sendStatus(204);
 };

@@ -32,6 +32,7 @@ async function ensureStudiosTable() {
         trialEndsAt DATETIME NULL,
         onboardingCompleted INTEGER NOT NULL DEFAULT 0,
         onboardingStep VARCHAR(64) NOT NULL DEFAULT 'studio',
+        ownerUserId INTEGER NULL,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -49,6 +50,12 @@ async function ensureStudiosTable() {
       "ALTER TABLE Studios ADD COLUMN operationalStatus VARCHAR(255) NULL DEFAULT 'active'"
     );
     console.log('[DB MIGRATION] Added Studios.operationalStatus column');
+  }
+
+  if (!(await columnExists('Studios', 'ownerUserId'))) {
+    // Nullable only: existing Studios must NOT be guess-backfilled with an owner.
+    await sequelize.query('ALTER TABLE Studios ADD COLUMN ownerUserId INTEGER NULL');
+    console.log('[DB MIGRATION] Added Studios.ownerUserId column');
   }
 
   await sequelize.query(

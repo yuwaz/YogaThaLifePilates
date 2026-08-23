@@ -130,6 +130,14 @@ module.exports = (sequelize) => {
         isIn: [ONBOARDING_STEPS],
       },
     },
+    ownerUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Users',
+        key: 'id',
+      },
+    },
   });
 
   return Studio;

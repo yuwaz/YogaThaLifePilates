@@ -56,6 +56,7 @@ exports.restoreMember = async (req, res) => {
 const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, PaymentMethod, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
+const { getStudioOwnerUserId } = require('../services/studioOwnerService');
 
 const measurementFields = ['height', 'weight', 'waist', 'hip', 'chest', 'arm', 'leg', 'shoulder', 'bodyFatPercentage'];
 
@@ -151,10 +152,13 @@ async function validateMemberRelations(req, { memberTypeId, assignedSalonIds, as
       if (!Number.isInteger(parsedInstructorId) || parsedInstructorId <= 0) {
         throw { status: 400, message: 'assignedInstructorId must be an integer or null' };
       }
+      // Teaching-capable = normal instructor OR the Studio's stable owner admin (never later admins).
+      const ownerUserId = await getStudioOwnerUserId(getAuthenticatedStudioId(req));
+      const isOwnerCandidate = ownerUserId !== null && ownerUserId === parsedInstructorId;
       const instructor = await User.findOne({
         where: withStudioWhere(req, {
           id: parsedInstructorId,
-          role: 'instructor',
+          ...(isOwnerCandidate ? {} : { role: 'instructor' }),
         }),
       });
       if (!instructor) {
