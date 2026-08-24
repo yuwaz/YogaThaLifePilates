@@ -236,12 +236,44 @@ exports.updateReservation = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
-const { Reservation, Equipment, Salon, Member, MemberType, Attendance } = require('../models');
+const { Reservation, Equipment, Salon, Member, MemberType, Attendance, Studio } = require('../models');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 
 const FIXED_DURATION_MINUTES = 45;
 const ALLOWED_START_MINUTES = new Set([0, 15, 30, 45]);
+
+function getLocalDateTimeParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(date);
+
+  const valueOf = (type) => parts.find((part) => part.type === type)?.value;
+  const year = valueOf('year');
+  const month = valueOf('month');
+  const day = valueOf('day');
+  const hour = valueOf('hour');
+  const minute = valueOf('minute');
+  const second = valueOf('second');
+
+  if (!year || !month || !day || !hour || !minute || !second) return null;
+  return { date: `${year}-${month}-${day}`, time: `${hour}:${minute}:${second}` };
+}
+
+async function getStudioTimezone(req) {
+  const studio = await Studio.findOne({
+    where: { id: getAuthenticatedStudioId(req) },
+    attributes: ['timezone'],
+  });
+  return studio?.timezone || null;
+}
 
 function parseTimeToMinutes(timeValue) {
   if (typeof timeValue !== 'string') return null;
@@ -626,7 +658,33 @@ exports.getReservations = async (req, res) => {
     where.memberId = parsedMemberId;
   }
 
-  if (startDate && endDate) {
+  let memberUpcomingTodayWhere = null;
+  if (parsedMemberId !== undefined && startDate) {
+    const timeZone = await getStudioTimezone(req);
+    if (!timeZone) {
+      return res.status(500).json({ error: 'Studio timezone is not configured' });
+    }
+    const localNow = getLocalDateTimeParts(new Date(), timeZone);
+    if (!localNow) {
+      return res.status(500).json({ error: 'Unable to resolve studio local time' });
+    }
+    if (startDate === localNow.date) {
+      memberUpcomingTodayWhere = {
+        [Op.or]: [
+          { date: { [Op.gt]: localNow.date } },
+          { date: localNow.date, time: { [Op.gte]: localNow.time } },
+        ],
+      };
+    }
+  }
+
+  if (memberUpcomingTodayWhere) {
+    if (endDate) {
+      where[Op.and] = [memberUpcomingTodayWhere, { date: { [Op.lte]: endDate } }];
+    } else {
+      where[Op.or] = memberUpcomingTodayWhere[Op.or];
+    }
+  } else if (startDate && endDate) {
     where.date = { [Op.between]: [startDate, endDate] };
   } else if (startDate) {
     where.date = { [Op.gte]: startDate };
