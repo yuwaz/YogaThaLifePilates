@@ -585,12 +585,31 @@ exports.createReservation = async (req, res) => {
 
 exports.getReservations = async (req, res) => {
   const onlyMyMembers = req.query.onlyMyMembers === 'true';
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, memberId, limit } = req.query;
   const isValidDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
   if ((startDate && !isValidDate(startDate)) || (endDate && !isValidDate(endDate))) {
     return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
   }
+
+  let parsedMemberId;
+  if (memberId !== undefined) {
+    parsedMemberId = Number(memberId);
+    if (!Number.isInteger(parsedMemberId) || parsedMemberId <= 0) {
+      return res.status(400).json({ error: 'Invalid memberId' });
+    }
+    const scopedMember = await findScopedMember(req, parsedMemberId);
+    if (!scopedMember) return res.status(404).json({ error: 'Member not found' });
+  }
+
+  let parsedLimit;
+  if (limit !== undefined) {
+    parsedLimit = Number(limit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+      return res.status(400).json({ error: 'Invalid limit' });
+    }
+  }
+
   console.log('[DEBUG] onlyMyMembers query:', onlyMyMembers);
   let where = {};
   let memberWhere = {};
@@ -603,6 +622,10 @@ exports.getReservations = async (req, res) => {
     }
   }
 
+  if (parsedMemberId !== undefined) {
+    where.memberId = parsedMemberId;
+  }
+
   if (startDate && endDate) {
     where.date = { [Op.between]: [startDate, endDate] };
   } else if (startDate) {
@@ -612,7 +635,7 @@ exports.getReservations = async (req, res) => {
   }
 
   console.log('[DEBUG] final reservation filter mode:', filterMode);
-  const reservations = await Reservation.findAll({
+  const queryOptions = {
     where: withStudioWhere(req, where),
     include: [{
       model: Member,
@@ -623,7 +646,17 @@ exports.getReservations = async (req, res) => {
         attributes: ['id', 'name', 'color']
       }]
     }]
-  });
+  };
+
+  // Deterministic chronological ordering/limit only applies to the additive memberId query path.
+  if (parsedMemberId !== undefined) {
+    queryOptions.order = [['date', 'ASC'], ['time', 'ASC']];
+    if (parsedLimit !== undefined) {
+      queryOptions.limit = parsedLimit;
+    }
+  }
+
+  const reservations = await Reservation.findAll(queryOptions);
   res.json(reservations.map(formatReservation));
 };
 
