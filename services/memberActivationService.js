@@ -178,14 +178,34 @@ async function ensureMembership(accountId, member, transaction, required = false
     return existing.accountId === accountId ? existing : null;
   }
 
-  return MemberAccountMembership.create({
-    accountId,
-    studioId: member.studioId,
-    memberId: member.id,
-  }, { transaction });
+  const existingStudioMembership = await MemberAccountMembership.findOne({
+    where: { accountId, studioId: member.studioId },
+    transaction,
+  });
+  if (existingStudioMembership) return null;
+
+  try {
+    return await MemberAccountMembership.create({
+      accountId,
+      studioId: member.studioId,
+      memberId: member.id,
+    }, { transaction });
+  } catch (error) {
+    if (error.name !== 'SequelizeUniqueConstraintError') throw error;
+    return MemberAccountMembership.findOne({
+      where: { accountId, memberId: member.id },
+      transaction,
+    });
+  }
 }
 
 async function linkSafeCrossStudioMembers(accountId, normalizedPhone, transaction) {
+  const account = await MemberAccount.findOne({
+    where: { id: accountId, normalizedPhone, status: 'active' },
+    transaction,
+  });
+  if (!account) return [];
+
   const members = await Member.findAll({
     where: {
       normalizedPhone,
@@ -196,8 +216,10 @@ async function linkSafeCrossStudioMembers(accountId, normalizedPhone, transactio
     transaction,
   });
   const byStudio = new Map();
+  const linkedMemberships = [];
 
   for (const member of members) {
+    if (member.normalizedPhone !== account.normalizedPhone) continue;
     if (!byStudio.has(member.studioId)) byStudio.set(member.studioId, []);
     byStudio.get(member.studioId).push(member);
   }
@@ -207,8 +229,11 @@ async function linkSafeCrossStudioMembers(accountId, normalizedPhone, transactio
     const member = studioMembers[0];
     const studio = await Studio.findByPk(member.studioId, { transaction });
     if (!studio || studio.id !== member.studioId) continue;
-    await ensureMembership(accountId, member, transaction, false);
+    const membership = await ensureMembership(account.id, member, transaction, false);
+    if (membership) linkedMemberships.push(membership);
   }
+
+  return linkedMemberships;
 }
 
 async function activateMember({ phone, code, password, passwordConfirmation }) {
@@ -295,4 +320,5 @@ module.exports = {
   ACTIVATION_CODE_TTL_MS,
   generateActivationCode,
   activateMember,
+  linkSafeCrossStudioMembers,
 };

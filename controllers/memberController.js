@@ -53,10 +53,11 @@ exports.restoreMember = async (req, res) => {
     return res.status(500).json({ message: 'Failed to reactivate member', error: err.message });
   }
 };
-const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, PaymentMethod, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
+const { sequelize, Member, MemberAccount, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, PaymentMethod, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 const { getStudioOwnerUserId } = require('../services/studioOwnerService');
+const { linkSafeCrossStudioMembers } = require('../services/memberActivationService');
 const { CLASSIFICATIONS, normalizePhone } = require('../utils/phoneNormalization');
 
 function getEligibleNormalizedPhone(phone) {
@@ -258,7 +259,19 @@ exports.createMember = async (req, res) => {
         memberPayload[field] = normalized.value;
       }
     }
-    const member = await Member.create(memberPayload);
+    let member;
+    await sequelize.transaction(async (transaction) => {
+      member = await Member.create(memberPayload, { transaction });
+      if (member.normalizedPhone) {
+        const account = await MemberAccount.findOne({
+          where: { normalizedPhone: member.normalizedPhone, status: 'active' },
+          transaction,
+        });
+        if (account) {
+          await linkSafeCrossStudioMembers(account.id, member.normalizedPhone, transaction);
+        }
+      }
+    });
     res.status(201).json(member);
   } catch (error) {
     if (error && Number.isInteger(error.status)) {

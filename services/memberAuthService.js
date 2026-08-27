@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const { MemberAccount, MemberAccountMembership, Member, Studio } = require('../models');
+const { linkSafeCrossStudioMembers } = require('./memberActivationService');
 const { CLASSIFICATIONS, normalizePhone } = require('../utils/phoneNormalization');
 const { signGlobalMemberToken, signMemberContextToken } = require('../utils/memberAuthToken');
 
@@ -125,6 +126,7 @@ async function loginMember(req, phone, password) {
   const token = signGlobalMemberToken(account.id);
   account.lastLoginAt = new Date();
   await account.save({ fields: ['lastLoginAt'] });
+  await linkSafeCrossStudioMembers(account.id, account.normalizedPhone);
   const memberships = await getAccessibleMemberships(account.id);
   return {
     token,
@@ -135,6 +137,7 @@ async function loginMember(req, phone, password) {
 async function getMemberSession(accountId) {
   const account = await MemberAccount.findByPk(accountId);
   if (!account || account.status !== 'active') throw genericMemberAccessError();
+  await linkSafeCrossStudioMembers(account.id, account.normalizedPhone);
   const memberships = await getAccessibleMemberships(account.id);
   return buildAccountResponse(account, memberships);
 }
