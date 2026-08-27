@@ -2,6 +2,9 @@ const { Sequelize } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
 const User = require('./user');
+const MemberAccount = require('./memberAccount');
+const MemberAccountMembership = require('./memberAccountMembership');
+const MemberActivationCode = require('./memberActivationCode');
 const Salon = require('./salon');
 const Equipment = require('./equipment');
 const Member = require('./member');
@@ -48,6 +51,9 @@ const sequelize = new Sequelize({
 // Model initialization
 const models = {
   User: User(sequelize),
+  MemberAccount: MemberAccount(sequelize),
+  MemberAccountMembership: MemberAccountMembership(sequelize),
+  MemberActivationCode: MemberActivationCode(sequelize),
   Salon: Salon(sequelize),
   Equipment: Equipment(sequelize),
   Member: Member(sequelize),
@@ -88,6 +94,19 @@ models.ManualCardUsage.belongsTo(models.MemberType, { foreignKey: 'memberTypeId'
 models.MemberType.hasMany(models.ManualCardUsage, { foreignKey: 'memberTypeId' });
 models.Member.hasMany(models.MemberMeasurement, { foreignKey: 'memberId' });
 models.MemberMeasurement.belongsTo(models.Member, { foreignKey: 'memberId' });
+
+models.MemberAccount.hasMany(models.MemberAccountMembership, { foreignKey: 'accountId', onDelete: 'RESTRICT' });
+models.MemberAccountMembership.belongsTo(models.MemberAccount, { foreignKey: 'accountId', onDelete: 'RESTRICT' });
+models.MemberAccountMembership.belongsTo(models.Studio, { foreignKey: 'studioId', onDelete: 'RESTRICT' });
+models.MemberAccountMembership.belongsTo(models.Member, { foreignKey: 'memberId', onDelete: 'RESTRICT' });
+models.Studio.hasMany(models.MemberAccountMembership, { foreignKey: 'studioId', onDelete: 'RESTRICT' });
+models.Member.hasMany(models.MemberAccountMembership, { foreignKey: 'memberId', onDelete: 'RESTRICT' });
+models.MemberActivationCode.belongsTo(models.Studio, { foreignKey: 'studioId', onDelete: 'RESTRICT' });
+models.MemberActivationCode.belongsTo(models.Member, { foreignKey: 'memberId', onDelete: 'RESTRICT' });
+models.MemberActivationCode.belongsTo(models.User, { as: 'CreatedByUser', foreignKey: 'createdByUserId', onDelete: 'RESTRICT' });
+models.Studio.hasMany(models.MemberActivationCode, { foreignKey: 'studioId', onDelete: 'RESTRICT' });
+models.Member.hasMany(models.MemberActivationCode, { foreignKey: 'memberId', onDelete: 'RESTRICT' });
+models.User.hasMany(models.MemberActivationCode, { as: 'CreatedMemberActivationCodes', foreignKey: 'createdByUserId', onDelete: 'RESTRICT' });
 
 models.Reservation.belongsTo(models.Member, { foreignKey: 'memberId' });
 models.Reservation.belongsTo(models.Equipment, { foreignKey: 'equipmentId' });

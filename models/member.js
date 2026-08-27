@@ -18,6 +18,10 @@ module.exports = (sequelize) => {
         is: /^\+90[0-9]{10}$/,
       },
     },
+    normalizedPhone: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     email: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -128,6 +132,14 @@ module.exports = (sequelize) => {
         name: 'members_studio_email_unique',
         unique: true,
         fields: ['studioId', 'email'],
+      },
+      {
+        name: 'members_normalized_phone_idx',
+        fields: ['normalizedPhone'],
+      },
+      {
+        name: 'members_studio_normalized_phone_idx',
+        fields: ['studioId', 'normalizedPhone'],
       },
     ],
   });

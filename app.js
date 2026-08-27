@@ -114,12 +114,19 @@ const ensureGooglePubSubNotificationInboxTable = require('./ensureGooglePubSubNo
 const ensurePlatformAdminsTable = require('./ensurePlatformAdminsTable');
 const ensurePlatformAuditLogsTable = require('./ensurePlatformAuditLogsTable');
 const ensureStudioManualSubscriptionOverridesTable = require('./ensureStudioManualSubscriptionOverridesTable');
+const ensureMemberAccountsTable = require('./ensureMemberAccountsTable');
+const ensureMemberAccountMembershipsTable = require('./ensureMemberAccountMembershipsTable');
+const ensureMemberActivationCodesTable = require('./ensureMemberActivationCodesTable');
+const ensureMemberNormalizedPhoneColumn = require('./ensureMemberNormalizedPhoneColumn');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
   await ensurePlatformAdminsTable();
   await ensurePlatformAuditLogsTable();
   await ensureStudioManualSubscriptionOverridesTable();
+  await ensureMemberAccountsTable();
+  await ensureMemberAccountMembershipsTable();
+  await ensureMemberActivationCodesTable();
   await ensureStudioSubscriptionEntitlementsTable();
   await ensureSubscriptionPurchaseIntentsTable();
   await ensureAppleSubscriptionTransactionsTable();
@@ -149,6 +156,7 @@ const PORT = process.env.PORT || 3000;
   await ensureStudioScopedUserMemberUniqueness();
   await ensureInstructorPayoutAndSessionTypeColumns();
   await sequelize.sync();
+  await ensureMemberNormalizedPhoneColumn();
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
 })();
