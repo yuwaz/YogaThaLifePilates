@@ -57,6 +57,18 @@ const { sequelize, Member, MemberMeasurement, MemberType, Salon, LessonPackage, 
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 const { getStudioOwnerUserId } = require('../services/studioOwnerService');
+const { CLASSIFICATIONS, normalizePhone } = require('../utils/phoneNormalization');
+
+function getEligibleNormalizedPhone(phone) {
+  const result = normalizePhone(phone);
+  if (
+    result.classification === CLASSIFICATIONS.TURKISH_MOBILE
+    || result.classification === CLASSIFICATIONS.INTERNATIONAL_E164
+  ) {
+    return result.normalizedPhone;
+  }
+  return null;
+}
 
 const measurementFields = ['height', 'weight', 'waist', 'hip', 'chest', 'arm', 'leg', 'shoulder', 'bodyFatPercentage'];
 
@@ -230,6 +242,7 @@ exports.createMember = async (req, res) => {
     const memberPayload = {
       name,
       phone: normalizedPhone,
+      normalizedPhone: getEligibleNormalizedPhone(normalizedPhone),
       email: safeEmail,
       memberTypeId: relationValidation.memberTypeId,
       assignedSalonIds: relationValidation.assignedSalonIds,
@@ -424,7 +437,10 @@ exports.updateMember = async (req, res) => {
     });
 
     if (name) member.name = name;
-    if (phone) member.phone = phone;
+    if (phone) {
+      member.phone = phone;
+      member.normalizedPhone = getEligibleNormalizedPhone(member.phone);
+    }
     // Email: allow null, trim if present, else null
     if (email !== undefined) {
       const safeEmail = typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
