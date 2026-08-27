@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const { sequelize } = require('./models');
 
 const authRoutes = require('./routes/auth');
+const memberAuthRoutes = require('./routes/memberAuth');
 const registerRoutes = require('./routes/register');
 const usersRoutes = require('./routes/settings/users');
 const salonsRoutes = require('./routes/settings/salons');
@@ -43,6 +44,7 @@ app.options('/auth/login', cors({
 
 // Auth routes (CORS also handled in router)
 app.use('/auth', authRoutes);
+app.use('/member-auth', memberAuthRoutes);
 app.use('/register', registerRoutes);
 app.use('/settings/users', usersRoutes);
 app.use('/settings/salons', salonsRoutes);

@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../../controllers/memberController');
+const activationController = require('../../controllers/memberActivationController');
 const { authenticateToken, authorizeRoles, authorizePagePermission } = require('../../middleware/auth');
 const requireActiveSubscription = require('../../middleware/requireActiveSubscription');
 
 router.use(authenticateToken);
 router.use(requireActiveSubscription);
+
+router.post('/:id/activation-code', authorizeRoles(['admin']), activationController.generateActivationCode);
 
 // Delete assigned lesson package from member
 router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizePagePermission('members'), controller.deleteAssignedLessonPackage);
