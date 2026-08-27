@@ -113,7 +113,7 @@ async function getMember(req) {
   const { memberId, studioId } = getContext(req);
   const member = await Member.findOne({
     where: { id: memberId, studioId, isActive: true, deletedAt: null },
-    attributes: ['id', 'name', 'phone', 'email', 'memberTypeId', 'createdAt', 'remainingLessons', 'totalDebt'],
+    attributes: ['id', 'name', 'phone', 'email', 'memberTypeId', 'createdAt', 'remainingLessons', 'totalDebt', 'assignedInstructorId'],
     include: [
       { model: MemberType, attributes: ['id', 'name'], required: false },
       { model: Studio, attributes: ['id', 'name'], required: true },
@@ -124,6 +124,17 @@ async function getMember(req) {
     where: { memberId, studioId },
     order: [['measuredAt', 'DESC'], ['id', 'DESC']],
   });
+  let assignedInstructor = null;
+  if (member.assignedInstructorId) {
+    // re-enforce same-studio at read time; ignore any stale/cross-studio value
+    const instructor = await User.findOne({
+      where: { id: member.assignedInstructorId, studioId },
+      attributes: ['id', 'username'],
+    });
+    if (instructor) {
+      assignedInstructor = { id: instructor.id, name: instructor.username };
+    }
+  }
   return {
     member: {
       id: member.id,
@@ -139,6 +150,7 @@ async function getMember(req) {
       totalDebt: member.totalDebt,
       latestMeasurement: measurementPayload(latestMeasurement),
     },
+    assignedInstructor,
   };
 }
 

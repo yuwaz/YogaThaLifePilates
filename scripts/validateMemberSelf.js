@@ -1,9 +1,41 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// --- Fail-closed disposable DB guard: must run before requiring ../models or any DB-owning module ---
+const repoDbPath = path.resolve(__dirname, '..', 'database.sqlite');
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'validateMemberSelf-'));
+const disposableDbPath = path.join(tmpDir, 'validateMemberSelf.sqlite');
+
+if (typeof disposableDbPath !== 'string' || disposableDbPath.trim() === '') {
+  throw new Error('Refusing to run: disposable DB path is empty');
+}
+if (path.resolve(disposableDbPath) === repoDbPath) {
+  throw new Error('Refusing to run: disposable DB path resolved to the repository database.sqlite');
+}
+const resolvedTmpDir = path.resolve(os.tmpdir());
+if (!path.resolve(disposableDbPath).startsWith(resolvedTmpDir + path.sep)) {
+  throw new Error('Refusing to run: disposable DB path is outside the intended temp directory');
+}
+
+process.env.DB_PATH = disposableDbPath;
+
 const jwt = require('jsonwebtoken');
 const models = require('../models');
 const controller = require('../controllers/memberSelfController');
 const { authenticateMemberContext } = require('../middleware/memberAuth');
 const { signMemberContextToken } = require('../utils/memberAuthToken');
+
+// Belt-and-braces: confirm Sequelize actually bound to the disposable DB, never the repo DB.
+const boundStoragePath = path.resolve(models.sequelize.options.storage);
+if (boundStoragePath !== path.resolve(disposableDbPath) || boundStoragePath === repoDbPath) {
+  throw new Error('Refusing to run: Sequelize did not bind to the expected disposable DB path');
+}
+
+function cleanup() {
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* best-effort */ }
+}
 
 function response() {
   return {
@@ -57,6 +89,7 @@ async function createFixtureMember(studio, name, phone) {
   const reservationA = await models.Reservation.create({ memberId: memberA.id, equipmentId: equipmentA.id, salonId: salonA.id, date: '2026-08-28', time: '18:00', studioId: studioA.id });
   await models.Reservation.create({ memberId: memberB.id, equipmentId: equipmentB.id, salonId: salonB.id, date: '2026-08-29', time: '19:00', studioId: studioB.id });
   const staff = await models.User.create({ username: 'instructor-self-test', password: 'hash', role: 'instructor', studioId: studioA.id });
+  const staffB = await models.User.create({ username: 'instructor-b-cross-studio', password: 'hash', role: 'instructor', studioId: studioB.id });
   await models.MemberMeasurement.create({ memberId: memberA.id, studioId: studioA.id, measuredAt: '2026-08-01T10:00:00.000Z', height: 175, weight: 72, notes: 'staff only', createdByUserId: staff.id });
   await models.MemberMeasurement.create({ memberId: memberA.id, studioId: studioA.id, measuredAt: '2026-08-02T10:00:00.000Z', height: 176, weight: 71, notes: 'latest internal note', createdByUserId: staff.id });
   await models.MemberMeasurement.create({ memberId: memberB.id, studioId: studioB.id, measuredAt: '2026-08-03T10:00:00.000Z', height: 180, weight: 80, studioId: studioB.id });
@@ -89,6 +122,25 @@ async function createFixtureMember(studio, name, phone) {
   assert.strictEqual(self.body.member.normalizedPhone, undefined);
   assert.strictEqual(self.body.member.assignedSalonIds, undefined);
   assert.strictEqual(self.body.summary.latestMeasurement.notes, undefined);
+  assert.strictEqual(self.body.assignedInstructor, null);
+
+  await memberA.update({ assignedInstructorId: staff.id });
+  const selfWithInstructor = await run(controller.getSelf, reqA);
+  assert.deepStrictEqual(selfWithInstructor.body.assignedInstructor, { id: staff.id, name: 'instructor-self-test' });
+  assert.strictEqual(selfWithInstructor.body.assignedInstructor.password, undefined);
+  assert.strictEqual(selfWithInstructor.body.assignedInstructor.role, undefined);
+  assert.strictEqual(selfWithInstructor.body.assignedInstructor.permissions, undefined);
+  assert.strictEqual(selfWithInstructor.body.assignedInstructor.studioId, undefined);
+
+  await memberA.update({ assignedInstructorId: staffB.id });
+  const selfCrossStudio = await run(controller.getSelf, reqA);
+  assert.strictEqual(selfCrossStudio.body.assignedInstructor, null);
+
+  await memberA.update({ assignedInstructorId: 999999 });
+  const selfStaleInstructor = await run(controller.getSelf, reqA);
+  assert.strictEqual(selfStaleInstructor.body.assignedInstructor, null);
+
+  await memberA.update({ assignedInstructorId: null });
 
   const measurements = await run(controller.getMeasurements, reqA);
   assert.strictEqual(measurements.body.length, 2);
@@ -141,7 +193,10 @@ async function createFixtureMember(studio, name, phone) {
   assert.notStrictEqual(selfB.body.member.id, self.body.member.id);
   assert.ok(foreignContext);
 
-  assert.strictEqual(JSON.stringify((await models.Member.findByPk(memberA.id)).toJSON()), before.member);
+  assert.strictEqual(
+    JSON.stringify({ ...(await models.Member.findByPk(memberA.id)).toJSON(), updatedAt: undefined }),
+    JSON.stringify({ ...JSON.parse(before.member), updatedAt: undefined })
+  );
   assert.strictEqual(await models.MemberMeasurement.count(), before.measurements);
   assert.strictEqual(await models.Reservation.count(), before.reservations);
   assert.strictEqual(await models.Attendance.count(), before.attendances);
@@ -150,4 +205,9 @@ async function createFixtureMember(studio, name, phone) {
   assert.strictEqual(await models.User.count(), before.users);
   console.log('member self-service validation passed');
   await models.sequelize.close();
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+}).finally(() => {
+  cleanup();
+});
