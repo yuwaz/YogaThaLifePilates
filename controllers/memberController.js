@@ -57,6 +57,9 @@ const { sequelize, Member, MemberAccount, MemberMeasurement, MemberType, Salon, 
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 const { getStudioOwnerUserId } = require('../services/studioOwnerService');
+const {
+  resolveAttendanceInstructor,
+} = require('../services/attendanceInstructorService');
 const { linkSafeCrossStudioMembers } = require('../services/memberActivationService');
 const { CLASSIFICATIONS, normalizePhone } = require('../utils/phoneNormalization');
 
@@ -681,8 +684,13 @@ exports.addAttendance = async (req, res) => {
   try {
     const { salonId, date } = req.body;
     const studioId = getAuthenticatedStudioId(req);
-    const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
     if (!salonId || !date) return res.status(400).json({ error: 'Missing required fields' });
+    if (req.user && req.user.role === 'instructor') {
+      const assigned = Array.isArray(req.user.assignedSalonIds) ? req.user.assignedSalonIds.map(Number) : [];
+      if (!assigned.includes(Number(salonId))) {
+        return res.status(403).json({ error: 'Forbidden: not assigned to salon' });
+      }
+    }
     const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
 
@@ -704,6 +712,17 @@ exports.addAttendance = async (req, res) => {
     if (!attendanceDateTime) {
       return res.status(400).json({ error: 'Invalid reservation time' });
     }
+
+    // instructorId = the instructor who actually taught the class (not the recorder).
+    const instructorResolution = await resolveAttendanceInstructor({
+      req,
+      studioId,
+      requestedInstructorId: req.body.instructorId,
+    });
+    if (!instructorResolution.ok) {
+      return res.status(instructorResolution.status).json({ error: instructorResolution.error });
+    }
+    const instructorId = instructorResolution.instructorId;
 
     if (member.remainingLessons <= 0) return res.status(400).json({ error: 'No remaining lessons' });
     const attendance = await Attendance.create({

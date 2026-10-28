@@ -124,12 +124,12 @@ exports.getReports = async (req, res) => {
       if (memberIds.length) attendanceWhere.memberId = { [Op.in]: memberIds };
       const attendances = await Attendance.findAll({ where: attendanceWhere });
       totalAttendanceCount = attendances.length;
-      // Instructor breakdown (by member.assignedInstructorId)
+      // Instructor breakdown by the instructor who actually taught (attendance.instructorId).
+      // member.assignedInstructorId is intentionally NOT used here.
       const instructorMap = {};
       for (const a of attendances) {
-        const member = members.find(m => m.id === a.memberId);
-        const instructorId = member ? member.assignedInstructorId : null;
-        if (instructorId) {
+        const instructorId = a.instructorId != null ? Number(a.instructorId) : null;
+        if (instructorId && !Number.isNaN(instructorId)) {
           if (!instructorMap[instructorId]) {
             instructorMap[instructorId] = { instructorId, instructorName: null, attendanceCount: 0 };
           }
@@ -277,6 +277,9 @@ exports.getReports = async (req, res) => {
       const salonsForNames = await Salon.findAll({ where: withStudioWhere(req, {}), attributes: ['id', 'name'] });
       const salonNameById = new Map(salonsForNames.map((s) => [Number(s.id), s.name]));
 
+      // Payout dedup: one session per instructor per class slot
+      // (studio + salon + reservation date/time + instructorId). Multiple instructors
+      // may legitimately teach different members in the same slot and each is paid once.
       const grouped = new Map();
       for (const attendance of sessionAttendances) {
         const reservation = attendance.Reservation;

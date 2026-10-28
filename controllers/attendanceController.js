@@ -1,5 +1,19 @@
-const { Attendance, Member, MemberType, Reservation, Salon } = require('../models');
+const { Attendance, Member, MemberType, Reservation, Salon, User } = require('../models');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
+const {
+  resolveAttendanceInstructor,
+} = require('../services/attendanceInstructorService');
+
+function getAssignedSalonIds(req) {
+  const ids = req && req.user && Array.isArray(req.user.assignedSalonIds) ? req.user.assignedSalonIds : [];
+  return ids.map((id) => Number(id));
+}
+
+function instructorSalonForbidden(req, salonIds) {
+  if (!req.user || req.user.role !== 'instructor') return false;
+  const assigned = getAssignedSalonIds(req);
+  return salonIds.some((salonId) => !assigned.includes(Number(salonId)));
+}
 
 const LOCAL_TIMEZONE = 'Europe/Istanbul';
 
@@ -73,6 +87,12 @@ exports.getAttendance = async (req, res) => {
     }
     const attendanceList = await Attendance.findAll({
       where: withStudioWhere(req, where),
+      include: [{
+        model: User,
+        as: 'Instructor',
+        attributes: ['id', 'username'],
+        required: false,
+      }],
       order: [['date', 'DESC']],
     });
     res.json(attendanceList);
@@ -85,7 +105,6 @@ exports.addAttendance = async (req, res) => {
   try {
     const { memberId, salonId, date } = req.body;
     const studioId = getAuthenticatedStudioId(req);
-    const instructorId = req.user && req.user.id ? Number(req.user.id) : null;
 
     if (!memberId || !salonId || !date) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -117,6 +136,17 @@ exports.addAttendance = async (req, res) => {
     if (!attendanceDateTime) {
       return res.status(400).json({ error: 'Invalid reservation time' });
     }
+
+    // instructorId = the instructor who actually taught the class (not the recorder).
+    const instructorResolution = await resolveAttendanceInstructor({
+      req,
+      studioId,
+      requestedInstructorId: req.body.instructorId,
+    });
+    if (!instructorResolution.ok) {
+      return res.status(instructorResolution.status).json({ error: instructorResolution.error });
+    }
+    const instructorId = instructorResolution.instructorId;
 
     // Load MemberType for card-based logic
     const memberType = await MemberType.findOne({ where: withStudioWhere(req, { id: member.memberTypeId }) });
@@ -165,10 +195,14 @@ exports.updateAttendance = async (req, res) => {
       return res.sendStatus(404);
     }
 
-    const { date, salonId, memberId } = req.body;
+    const { date, salonId, memberId, instructorId } = req.body;
 
     if (!salonId) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (instructorSalonForbidden(req, [attendance.salonId, salonId])) {
+      return res.status(403).json({ error: 'Forbidden: not assigned to salon' });
     }
 
     const salon = await Salon.findOne({ where: withStudioWhere(req, { id: salonId }) });
@@ -223,9 +257,27 @@ exports.updateAttendance = async (req, res) => {
       attendance.reservationId = reservationMatch.reservationId;
     }
 
+    // instructorId = the instructor who actually taught the class (not the recorder).
+    let nextInstructorId = attendance.instructorId;
+    if (instructorId !== undefined) {
+      if (instructorId === null) {
+        return res.status(400).json({ error: 'instructorId cannot be null' });
+      }
+      const instructorResolution = await resolveAttendanceInstructor({
+        req,
+        studioId,
+        requestedInstructorId: instructorId,
+      });
+      if (!instructorResolution.ok) {
+        return res.status(instructorResolution.status).json({ error: instructorResolution.error });
+      }
+      nextInstructorId = instructorResolution.instructorId;
+    }
+
     attendance.memberId = nextMemberId;
     attendance.date = nextAttendanceDate;
   attendance.salonId = salonId;
+    attendance.instructorId = nextInstructorId;
     await attendance.save();
 
     res.json(attendance);
@@ -239,6 +291,10 @@ exports.deleteAttendance = async (req, res) => {
     const attendance = await Attendance.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!attendance) {
       return res.sendStatus(404);
+    }
+
+    if (instructorSalonForbidden(req, [attendance.salonId])) {
+      return res.status(403).json({ error: 'Forbidden: not assigned to salon' });
     }
 
     const member = await Member.findOne({ where: withStudioWhere(req, { id: attendance.memberId }) });
