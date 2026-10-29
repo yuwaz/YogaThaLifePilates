@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 const { getStudioOwnerUserId } = require('../services/studioOwnerService');
+const { recordFeeChangeIfNeeded } = require('../services/instructorFeeHistoryService');
 
 function toSafeUserPayload(user) {
   const payload = user && typeof user.get === 'function' ? user.get({ plain: true }) : user;
@@ -87,15 +88,22 @@ exports.createUser = async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     try {
+      const studioId = getAuthenticatedStudioId(req);
       const user = await User.create({
         username,
         password: hash,
         role,
         assignedSalonIds: assignedSalonIds || [],
         permissions: permissions || [],
-        studioId: getAuthenticatedStudioId(req),
+        studioId,
         groupSessionFee: groupSessionFee === undefined ? 0 : Number(groupSessionFee),
         individualSessionFee: individualSessionFee === undefined ? 0 : Number(individualSessionFee),
+      });
+      await recordFeeChangeIfNeeded({
+        user,
+        studioId,
+        groupSessionFee: user.groupSessionFee,
+        individualSessionFee: user.individualSessionFee,
       });
       res.status(201).json(toSafeUserPayload(user));
     } catch (dbErr) {
@@ -243,6 +251,14 @@ exports.updateUser = async (req, res) => {
     if (individualSessionFee !== undefined) user.individualSessionFee = Number(individualSessionFee);
     if (passwordToApply) user.password = await bcrypt.hash(passwordToApply, 10);
     await user.save();
+    if (groupSessionFee !== undefined || individualSessionFee !== undefined) {
+      await recordFeeChangeIfNeeded({
+        user,
+        studioId: getAuthenticatedStudioId(req),
+        groupSessionFee: user.groupSessionFee,
+        individualSessionFee: user.individualSessionFee,
+      });
+    }
     res.json(toSafeUserPayload(user));
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message || 'Server error' });
@@ -287,6 +303,13 @@ exports.updateUserFees = async (req, res) => {
     user.groupSessionFee = Number(groupSessionFee);
     user.individualSessionFee = Number(individualSessionFee);
     await user.save({ fields: ['groupSessionFee', 'individualSessionFee'] });
+
+    await recordFeeChangeIfNeeded({
+      user,
+      studioId,
+      groupSessionFee: user.groupSessionFee,
+      individualSessionFee: user.individualSessionFee,
+    });
 
     res.json(toSafeUserPayload(user));
   } catch (err) {

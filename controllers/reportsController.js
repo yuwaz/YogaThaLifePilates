@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { Member, MemberType, Reservation, Payment, LessonPackage, Salon, Equipment, Attendance, Expense, User, ManualCardUsage } = require('../models');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
+const { buildFeeResolver } = require('../services/instructorFeeHistoryService');
 
 exports.getReports = async (req, res) => {
   try {
@@ -266,13 +267,10 @@ exports.getReports = async (req, res) => {
           })
         : [];
       const instructorNameById = new Map(users.map((u) => [Number(u.id), u.username]));
-      const instructorFeeById = new Map(users.map((u) => [
-        Number(u.id),
-        {
-          groupSessionFee: Number(u.groupSessionFee || 0),
-          individualSessionFee: Number(u.individualSessionFee || 0),
-        },
-      ]));
+      // Per-session fee resolution: latest UserFeeHistory entry effective on the
+      // session's Reservation.date. Sessions predating an instructor's first history
+      // entry keep the legacy current-fee behavior (no retroactive repricing).
+      const { feeFor, currentFeeById } = await buildFeeResolver({ studioId, instructorIds });
 
       const salonsForNames = await Salon.findAll({ where: withStudioWhere(req, {}), attributes: ['id', 'name'] });
       const salonNameById = new Map(salonsForNames.map((s) => [Number(s.id), s.name]));
@@ -359,10 +357,18 @@ exports.getReports = async (req, res) => {
           const sessionValues = Array.from(row.sessions.values());
           const groupSessionCount = sessionValues.filter((session) => session.hasGroupSignal).length;
           const individualSessionCount = sessionValues.length - groupSessionCount;
-          const feeConfig = instructorFeeById.get(row.instructorId) || { groupSessionFee: 0, individualSessionFee: 0 };
+          // Fee applied per session date (point-in-time), never per attendee.
+          let totalInstructorPayout = 0;
+          for (const session of sessionValues) {
+            const sessionFee = feeFor(row.instructorId, session.date);
+            totalInstructorPayout += session.hasGroupSignal
+              ? Number(sessionFee.groupSessionFee || 0)
+              : Number(sessionFee.individualSessionFee || 0);
+          }
+          // Response fee fields keep their existing shape and show the current rates.
+          const feeConfig = currentFeeById.get(row.instructorId) || { groupSessionFee: 0, individualSessionFee: 0 };
           const groupSessionFee = Number(feeConfig.groupSessionFee || 0);
           const individualSessionFee = Number(feeConfig.individualSessionFee || 0);
-          const totalInstructorPayout = (groupSessionCount * groupSessionFee) + (individualSessionCount * individualSessionFee);
 
           return {
             instructorId: row.instructorId,

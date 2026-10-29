@@ -2,6 +2,7 @@ const { Sequelize } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
 const User = require('./user');
+const UserFeeHistory = require('./userFeeHistory');
 const MemberAccount = require('./memberAccount');
 const MemberAccountMembership = require('./memberAccountMembership');
 const MemberActivationCode = require('./memberActivationCode');
@@ -51,6 +52,7 @@ const sequelize = new Sequelize({
 // Model initialization
 const models = {
   User: User(sequelize),
+  UserFeeHistory: UserFeeHistory(sequelize),
   MemberAccount: MemberAccount(sequelize),
   MemberAccountMembership: MemberAccountMembership(sequelize),
   MemberActivationCode: MemberActivationCode(sequelize),
@@ -126,6 +128,11 @@ models.Attendance.belongsTo(models.User, {
 
 models.Studio.hasMany(models.User, { foreignKey: 'studioId' });
 models.User.belongsTo(models.Studio, { foreignKey: 'studioId' });
+// Fee history rows are intentionally kept when a User is deleted (no cascade).
+models.User.hasMany(models.UserFeeHistory, { foreignKey: 'userId', constraints: false });
+models.UserFeeHistory.belongsTo(models.User, { foreignKey: 'userId', constraints: false });
+models.Studio.hasMany(models.UserFeeHistory, { foreignKey: 'studioId' });
+models.UserFeeHistory.belongsTo(models.Studio, { foreignKey: 'studioId' });
 models.Studio.hasMany(models.Member, { foreignKey: 'studioId' });
 models.Member.belongsTo(models.Studio, { foreignKey: 'studioId' });
 models.Studio.hasMany(models.Salon, { foreignKey: 'studioId' });
