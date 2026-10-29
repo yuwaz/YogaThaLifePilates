@@ -57,6 +57,14 @@ module.exports = (sequelize) => sequelize.define('MemberActivationCode', {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  purpose: {
+    type: DataTypes.STRING(16),
+    allowNull: false,
+    defaultValue: 'activation',
+    validate: {
+      isIn: [['activation', 'recovery']],
+    },
+  },
 }, {
   indexes: [
     {

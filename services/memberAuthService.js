@@ -123,7 +123,7 @@ async function loginMember(req, phone, password) {
   }
 
   clearFailures(key);
-  const token = signGlobalMemberToken(account.id);
+  const token = signGlobalMemberToken(account.id, Number(account.tokenVersion || 0));
   account.lastLoginAt = new Date();
   await account.save({ fields: ['lastLoginAt'] });
   await linkSafeCrossStudioMembers(account.id, account.normalizedPhone);
@@ -159,12 +159,16 @@ async function selectMembership(accountId, membershipId) {
     throw genericMemberAccessError();
   }
 
+  const account = await MemberAccount.findByPk(accountId, { attributes: ['id', 'tokenVersion'] });
+  if (!account) throw genericMemberAccessError();
+
   return {
     contextToken: signMemberContextToken({
       accountId,
       membershipId: membership.id,
       studioId: membership.studioId,
       memberId: membership.memberId,
+      tokenVersion: Number(account.tokenVersion || 0),
     }),
     membership: toMembershipPayload(membership),
   };
@@ -176,6 +180,32 @@ function validateAccountId(accountId) {
   return parsed;
 }
 
+const PASSWORD_MIN_LENGTH = 8;
+
+// Logged-in member password change. Requires the current password and a valid
+// global token (enforced by middleware). Memberships are untouched.
+async function changePassword(accountId, currentPassword, newPassword, newPasswordConfirmation) {
+  if (typeof currentPassword !== 'string'
+    || typeof newPassword !== 'string'
+    || typeof newPasswordConfirmation !== 'string') {
+    throw new MemberAuthError('Invalid phone or password');
+  }
+  if (newPassword.length < PASSWORD_MIN_LENGTH || newPassword !== newPasswordConfirmation) {
+    throw new MemberAuthError('Invalid phone or password');
+  }
+
+  const account = await MemberAccount.findOne({ where: { id: accountId, status: 'active' } });
+  if (!account || !(await bcrypt.compare(currentPassword, account.passwordHash))) {
+    throw genericLoginError();
+  }
+
+  account.passwordHash = await bcrypt.hash(newPassword, 10);
+  account.passwordChangedAt = new Date();
+  account.tokenVersion = Number(account.tokenVersion || 0) + 1;
+  await account.save({ fields: ['passwordHash', 'passwordChangedAt', 'tokenVersion'] });
+  return { success: true };
+}
+
 module.exports = {
   LOGIN_MAX_FAILURES,
   LOGIN_WINDOW_MS,
@@ -183,6 +213,7 @@ module.exports = {
   getMemberSession,
   getAccessibleMemberships,
   selectMembership,
+  changePassword,
   validateAccountId,
   genericLoginError,
 };

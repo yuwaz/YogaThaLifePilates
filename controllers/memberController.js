@@ -53,7 +53,7 @@ exports.restoreMember = async (req, res) => {
     return res.status(500).json({ message: 'Failed to reactivate member', error: err.message });
   }
 };
-const { sequelize, Member, MemberAccount, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, PaymentMethod, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
+const { sequelize, Member, MemberAccount, MemberAccountMembership, MemberMeasurement, MemberType, Salon, LessonPackage, Payment, PaymentMethod, Attendance, Reservation, MemberLessonPackage, User } = require('../models');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
 const { getStudioOwnerUserId } = require('../services/studioOwnerService');
@@ -304,6 +304,34 @@ exports.createMember = async (req, res) => {
   }
 };
 
+// Maps memberIds to their global account status for studio views.
+// 'active' = linked active account, 'disabled' = linked disabled account,
+// 'pending' = no linked account. Distinct from Member.isActive (studio membership).
+async function getAccountStatusByMemberId(studioId, memberIds) {
+  const ids = [...new Set((memberIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  const result = new Map(ids.map((id) => [id, 'pending']));
+  if (ids.length === 0) return result;
+
+  const memberships = await MemberAccountMembership.findAll({
+    where: { studioId, memberId: { [Op.in]: ids } },
+    attributes: ['memberId', 'accountId'],
+  });
+  if (memberships.length === 0) return result;
+
+  const accountIds = [...new Set(memberships.map((m) => Number(m.accountId)))];
+  const accounts = await MemberAccount.findAll({
+    where: { id: { [Op.in]: accountIds } },
+    attributes: ['id', 'status'],
+  });
+  const statusByAccountId = new Map(accounts.map((a) => [Number(a.id), a.status]));
+
+  for (const membership of memberships) {
+    const status = statusByAccountId.get(Number(membership.accountId));
+    result.set(Number(membership.memberId), status === 'active' ? 'active' : 'disabled');
+  }
+  return result;
+}
+
 exports.getMembers = async (req, res) => {
   try {
     console.log('[DEBUG] Entering getMembers endpoint');
@@ -319,8 +347,16 @@ exports.getMembers = async (req, res) => {
     console.log('[DEBUG] before DB query, where:', where);
     const members = await Member.findAll({ where: withStudioWhere(req, where) });
     console.log('[DEBUG] after DB query, count:', members.length);
+    const accountStatusByMemberId = await getAccountStatusByMemberId(
+      getAuthenticatedStudioId(req),
+      members.map((m) => m.id)
+    );
     console.log('[DEBUG] before response.json');
-    res.json(members);
+    res.json(members.map((m) => {
+      const obj = m.toJSON();
+      obj.accountStatus = accountStatusByMemberId.get(Number(m.id)) || 'pending';
+      return obj;
+    }));
   } catch (err) {
     console.error('[DEBUG] getMembers error:', err && err.message, err && err.stack);
     res.status(500).json({ error: 'Failed to fetch members', details: err && err.message });
@@ -360,6 +396,11 @@ exports.getMember = async (req, res) => {
   }));
   const memberObj = member.toJSON();
   memberObj.assignedLessonPackages = assignedLessonPackages;
+  const accountStatusByMemberId = await getAccountStatusByMemberId(
+    getAuthenticatedStudioId(req),
+    [member.id]
+  );
+  memberObj.accountStatus = accountStatusByMemberId.get(Number(member.id)) || 'pending';
   // Always include assignedInstructorId in detail
   res.json(memberObj);
 };
@@ -454,6 +495,11 @@ exports.updateMember = async (req, res) => {
 
     if (name) member.name = name;
     if (phone) {
+      // Studio contact phone may change freely. This never touches the linked
+      // MemberAccount.normalizedPhone (global login identity) and never unlinks
+      // or relinks the existing membership. linkSafeCrossStudioMembers only runs
+      // on create/login/activation (not on member update), so editing the contact
+      // phone cannot auto-connect this member to another account.
       member.phone = phone;
       member.normalizedPhone = getEligibleNormalizedPhone(member.phone);
     }

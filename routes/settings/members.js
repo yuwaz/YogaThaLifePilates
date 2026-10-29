@@ -9,6 +9,7 @@ router.use(authenticateToken);
 router.use(requireActiveSubscription);
 
 router.post('/:id/activation-code', authorizeRoles(['admin']), activationController.generateActivationCode);
+router.post('/:id/recovery-code', authorizeRoles(['admin']), activationController.generateRecoveryCode);
 
 // Delete assigned lesson package from member
 router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizePagePermission('members'), controller.deleteAssignedLessonPackage);

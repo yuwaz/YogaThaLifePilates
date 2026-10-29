@@ -31,13 +31,17 @@ function signMemberToken(payload, tokenType, expiresIn) {
   );
 }
 
-function signGlobalMemberToken(accountId) {
-  return signMemberToken({ accountId }, MEMBER_GLOBAL_TOKEN_TYPE, MEMBER_GLOBAL_TOKEN_EXPIRY);
+function signGlobalMemberToken(accountId, tokenVersion) {
+  return signMemberToken(
+    { accountId, ...(tokenVersion !== undefined ? { tokenVersion } : {}) },
+    MEMBER_GLOBAL_TOKEN_TYPE,
+    MEMBER_GLOBAL_TOKEN_EXPIRY
+  );
 }
 
-function signMemberContextToken({ accountId, membershipId, studioId, memberId }) {
+function signMemberContextToken({ accountId, membershipId, studioId, memberId, tokenVersion }) {
   return signMemberToken(
-    { accountId, membershipId, studioId, memberId },
+    { accountId, membershipId, studioId, memberId, ...(tokenVersion !== undefined ? { tokenVersion } : {}) },
     MEMBER_CONTEXT_TOKEN_TYPE,
     MEMBER_CONTEXT_TOKEN_EXPIRY
   );

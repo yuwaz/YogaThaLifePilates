@@ -2,6 +2,7 @@ const {
   loginMember,
   getMemberSession,
   selectMembership,
+  changePassword,
   validateAccountId,
 } = require('../services/memberAuthService');
 
@@ -40,5 +41,20 @@ exports.selectMembership = async (req, res) => {
     return res.status(200).json(result);
   } catch (error) {
     return res.status(error.status || 403).json({ error: error.message || 'Member access unavailable' });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await changePassword(
+      validateAccountId(req.memberAccountId),
+      body.currentPassword,
+      body.newPassword,
+      body.newPasswordConfirmation
+    );
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(error.status || 401).json({ error: error.message || 'Invalid phone or password' });
   }
 };

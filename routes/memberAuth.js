@@ -6,8 +6,10 @@ const { authenticateMember } = require('../middleware/memberAuth');
 const router = express.Router();
 
 router.post('/activate', controller.activateMember);
+router.post('/reset-password', controller.resetPassword);
 router.post('/login', memberAuthController.login);
 router.get('/me', authenticateMember, memberAuthController.getMe);
 router.post('/select-membership', authenticateMember, memberAuthController.selectMembership);
+router.post('/change-password', authenticateMember, memberAuthController.changePassword);
 
 module.exports = router;

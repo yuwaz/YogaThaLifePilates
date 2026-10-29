@@ -17,6 +17,21 @@ function readBearerToken(req) {
   return token;
 }
 
+// Account-level token revocation via tokenVersion. Tokens carry the account's
+// tokenVersion at issuance; any password reset/change increments it, revoking all
+// prior tokens. Legacy tokens (no tokenVersion claim) stay valid until the first
+// password change (tokenVersion 0 -> 1), then become invalid.
+function isTokenRevoked(decoded, account) {
+  if (!account) return true;
+  const currentVersion = Number(account.tokenVersion || 0);
+  const hasClaim = decoded && decoded.tokenVersion !== undefined && decoded.tokenVersion !== null;
+  if (!hasClaim) {
+    // Legacy token: valid only while the account has never changed its password.
+    return currentVersion > 0;
+  }
+  return Number(decoded.tokenVersion) !== currentVersion;
+}
+
 function authenticateMember(req, res, next) {
   try {
     const token = readBearerToken(req);
@@ -24,7 +39,7 @@ function authenticateMember(req, res, next) {
     const decoded = verifyMemberToken(token, MEMBER_GLOBAL_TOKEN_TYPE);
     return MemberAccount.findOne({ where: { id: decoded.accountId, status: 'active' } })
       .then((account) => {
-        if (!account) return unauthorized(res);
+        if (!account || isTokenRevoked(decoded, account)) return unauthorized(res);
         req.memberAccount = account;
         req.memberAccountId = account.id;
         return next();
@@ -42,7 +57,7 @@ function authenticateMemberContext(req, res, next) {
     const decoded = verifyMemberToken(token, MEMBER_CONTEXT_TOKEN_TYPE);
     return MemberAccount.findOne({ where: { id: decoded.accountId, status: 'active' } })
       .then(async (account) => {
-        if (!account) return unauthorized(res);
+        if (!account || isTokenRevoked(decoded, account)) return unauthorized(res);
         const membership = await MemberAccountMembership.findOne({
           where: { id: decoded.membershipId, accountId: account.id },
           include: [

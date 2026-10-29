@@ -27,6 +27,15 @@ module.exports = (sequelize) => sequelize.define('MemberAccount', {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  passwordChangedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  tokenVersion: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+  },
 }, {
   indexes: [
     {
