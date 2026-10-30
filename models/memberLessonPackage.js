@@ -22,6 +22,14 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    expiresAt: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    dueDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
     originalPrice: {
       type: DataTypes.FLOAT,
       allowNull: false,

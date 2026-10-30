@@ -6,6 +6,7 @@ const { sequelize } = require('./models');
 const authRoutes = require('./routes/auth');
 const memberAuthRoutes = require('./routes/memberAuth');
 const memberSelfRoutes = require('./routes/memberSelf');
+const memberNotificationsRoutes = require('./routes/memberNotifications');
 const registerRoutes = require('./routes/register');
 const usersRoutes = require('./routes/settings/users');
 const salonsRoutes = require('./routes/settings/salons');
@@ -18,6 +19,7 @@ const reservationsRoutes = require('./routes/settings/reservations');
 const paymentsRoutes = require('./routes/settings/payments');
 const attendancesRoutes = require('./routes/settings/attendances');
 const reportsRoutes = require('./routes/settings/reports');
+const notificationsSettingsRoutes = require('./routes/settings/notifications');
 const expensesRoutes = require('./routes/settings/expenses');
 const manualCardUsagesRoutes = require('./routes/settings/manual-card-usages');
 const studioOnboardingRoutes = require('./routes/settings/studio-onboarding');
@@ -47,6 +49,7 @@ app.options('/auth/login', cors({
 app.use('/auth', authRoutes);
 app.use('/member-auth', memberAuthRoutes);
 app.use('/member', memberSelfRoutes);
+app.use('/member/notifications', memberNotificationsRoutes);
 app.use('/register', registerRoutes);
 app.use('/settings/users', usersRoutes);
 app.use('/settings/salons', salonsRoutes);
@@ -65,6 +68,7 @@ app.use('/settings/subscription', subscriptionSettingsRoutes);
 app.use('/settings/memberTypes', memberTypesRoutes);
 app.use('/settings/paymentMethods', paymentMethodsRoutes);
 app.use('/settings/reports', reportsRoutes);
+app.use('/settings/notifications', notificationsSettingsRoutes);
 
 const backofficeEnabled = ['1', 'true'].includes(
   String(process.env.BACKOFFICE_ENABLED || '').trim().toLowerCase()
@@ -126,6 +130,11 @@ const ensureMemberActivationCodesTable = require('./ensureMemberActivationCodesT
 const ensureMemberActivationCodePurposeColumn = require('./ensureMemberActivationCodePurposeColumn');
 const ensureMemberNormalizedPhoneColumn = require('./ensureMemberNormalizedPhoneColumn');
 const ensureUserFeeHistoryTable = require('./ensureUserFeeHistoryTable');
+const ensureNotificationTables = require('./ensureNotificationTables');
+const ensureDeviceTokensTable = require('./ensureDeviceTokensTable');
+const ensureNotificationPushDeliveriesTable = require('./ensureNotificationPushDeliveriesTable');
+const { createNotificationScheduler, isWorkerEnabled, isPushWorkerEnabled } = require('./services/notificationScheduler');
+const ensureMemberLessonPackageExpiryAndDueDate = require('./ensureMemberLessonPackageExpiryAndDueDate');
 const PORT = process.env.PORT || 3000;
 (async () => {
   await ensureStudiosTable();
@@ -158,6 +167,7 @@ const PORT = process.env.PORT || 3000;
   await ensureReservationStudioIdColumn();
   await ensureAttendanceStudioIdColumn();
   await ensureMemberLessonPackageStudioIdColumn();
+  await ensureMemberLessonPackageExpiryAndDueDate();
   await ensureManualCardUsagesTable();
   await ensureMemberMeasurementStudioIdColumn();
   await ensureMemberSoftDeleteColumns();
@@ -169,6 +179,30 @@ const PORT = process.env.PORT || 3000;
   await sequelize.sync();
   await ensureUserFeeHistoryTable();
   await ensureMemberNormalizedPhoneColumn();
+  await ensureNotificationTables();
+  await ensureDeviceTokensTable();
+  await ensureNotificationPushDeliveriesTable();
+  // Notification worker: DISABLED by default. Starts only with an explicit
+  // NOTIFICATIONS_WORKER_ENABLED=1. Never started by importing modules.
+  if (isWorkerEnabled()) {
+    // Push processing requires BOTH NOTIFICATIONS_WORKER_ENABLED=1 AND
+    // PUSH_WORKER_ENABLED=1, plus valid Firebase credentials. The transport is
+    // created lazily (no Firebase init when push is off or credentials missing).
+    let pushTransport = null;
+    if (isPushWorkerEnabled()) {
+      try {
+        const { createFirebasePushTransport } = require('./services/firebasePushTransport');
+        pushTransport = createFirebasePushTransport();
+        console.log('[NotificationScheduler] push worker enabled via PUSH_WORKER_ENABLED=1');
+      } catch (err) {
+        console.error('[NotificationScheduler] push worker disabled:', err && err.message);
+        pushTransport = null;
+      }
+    }
+    const scheduler = createNotificationScheduler({ pushTransport });
+    scheduler.start();
+    console.log('[NotificationScheduler] worker enabled via NOTIFICATIONS_WORKER_ENABLED=1');
+  }
   // Listen on all network interfaces for external access
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
 })();

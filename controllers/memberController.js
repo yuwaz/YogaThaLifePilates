@@ -61,6 +61,7 @@ const {
   resolveAttendanceInstructor,
 } = require('../services/attendanceInstructorService');
 const { linkSafeCrossStudioMembers } = require('../services/memberActivationService');
+const packageNotificationService = require('../services/packageNotificationService');
 const { CLASSIFICATIONS, normalizePhone } = require('../utils/phoneNormalization');
 
 function getEligibleNormalizedPhone(phone) {
@@ -624,6 +625,12 @@ exports.addLessonPackage = async (req, res) => {
       finalPrice,
       studioId: getAuthenticatedStudioId(req),
     });
+    // Notification: new package assigned (non-blocking).
+    try {
+      await packageNotificationService.notifyPackageAssigned(assignment, { studioId: getAuthenticatedStudioId(req) });
+    } catch (notifyErr) {
+      console.error('[Notification] package assigned notify failed:', notifyErr && notifyErr.message);
+    }
     // Return assignment info (including pricing fields)
     res.json({
       memberId: member.id,
@@ -781,6 +788,12 @@ exports.addAttendance = async (req, res) => {
     });
     member.remainingLessons = Number(member.remainingLessons) - 1;
     await member.save();
+    // Notification: remaining-lessons threshold (2/0) after successful attendance.
+    try {
+      await packageNotificationService.checkRemainingLessonsThreshold(member.id, { studioId });
+    } catch (notifyErr) {
+      console.error('[Notification] threshold check failed:', notifyErr && notifyErr.message);
+    }
     res.status(201).json(attendance);
   } catch (err) {
     res.status(400).json({ error: err.message });

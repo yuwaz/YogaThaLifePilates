@@ -1,0 +1,20 @@
+# SQLite databases and backups
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+dryrun/
+
+# Firebase / service-account credentials and private keys
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+*serviceAccount*.json
+*.pem
+*.key
+
+# OS metadata
+.DS_Store
+
+# Dependencies
+node_modules/

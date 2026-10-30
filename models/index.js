@@ -20,6 +20,11 @@ const Expense = require('./expense');
 const MemberMeasurement = require('./memberMeasurement');
 const ManualCardUsage = require('./manualCardUsage');
 const Studio = require('./studio');
+const Notification = require('./notification');
+const NotificationJob = require('./notificationJob');
+const StudioNotificationSettings = require('./studioNotificationSettings');
+const DeviceToken = require('./deviceToken');
+const NotificationPushDelivery = require('./notificationPushDelivery');
 const StudioSubscriptionEntitlement = require('./studioSubscriptionEntitlement');
 const SubscriptionPurchaseIntent = require('./subscriptionPurchaseIntent');
 const AppleSubscriptionTransaction = require('./appleSubscriptionTransaction');
@@ -70,6 +75,11 @@ const models = {
   MemberMeasurement: MemberMeasurement(sequelize),
   ManualCardUsage: ManualCardUsage(sequelize),
   Studio: Studio(sequelize),
+  Notification: Notification(sequelize),
+  NotificationJob: NotificationJob(sequelize),
+  StudioNotificationSettings: StudioNotificationSettings(sequelize),
+  DeviceToken: DeviceToken(sequelize),
+  NotificationPushDelivery: NotificationPushDelivery(sequelize),
   StudioSubscriptionEntitlement: StudioSubscriptionEntitlement(sequelize),
   SubscriptionPurchaseIntent: SubscriptionPurchaseIntent(sequelize),
   AppleSubscriptionTransaction: AppleSubscriptionTransaction(sequelize),
@@ -128,6 +138,18 @@ models.Attendance.belongsTo(models.User, {
 
 models.Studio.hasMany(models.User, { foreignKey: 'studioId' });
 models.User.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.Notification, { foreignKey: 'studioId' });
+models.Notification.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.NotificationJob, { foreignKey: 'studioId' });
+models.NotificationJob.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasOne(models.StudioNotificationSettings, { foreignKey: 'studioId' });
+models.StudioNotificationSettings.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Studio.hasMany(models.DeviceToken, { foreignKey: 'studioId' });
+models.DeviceToken.belongsTo(models.Studio, { foreignKey: 'studioId' });
+models.Notification.hasMany(models.NotificationPushDelivery, { foreignKey: 'notificationId' });
+models.NotificationPushDelivery.belongsTo(models.Notification, { foreignKey: 'notificationId' });
+models.DeviceToken.hasMany(models.NotificationPushDelivery, { foreignKey: 'deviceTokenId' });
+models.NotificationPushDelivery.belongsTo(models.DeviceToken, { foreignKey: 'deviceTokenId' });
 // Fee history rows are intentionally kept when a User is deleted (no cascade).
 models.User.hasMany(models.UserFeeHistory, { foreignKey: 'userId', constraints: false });
 models.UserFeeHistory.belongsTo(models.User, { foreignKey: 'userId', constraints: false });

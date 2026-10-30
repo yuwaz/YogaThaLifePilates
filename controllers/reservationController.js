@@ -239,6 +239,7 @@ exports.updateReservation = async (req, res) => {
 const { Reservation, Equipment, Salon, Member, MemberType, Attendance, Studio } = require('../models');
 const { Op } = require('sequelize');
 const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/tenantContext');
+const reservationNotificationService = require('../services/reservationNotificationService');
 
 const FIXED_DURATION_MINUTES = 45;
 const ALLOWED_START_MINUTES = new Set([0, 15, 30, 45]);
@@ -532,6 +533,14 @@ exports.createReservation = async (req, res) => {
       if (memberOverlap) return res.status(400).json({ error: 'Member already has a reservation at this time' });
       // Create reservation
       const reservation = await Reservation.create({ memberId, equipmentId, salonId, date, time, studioId });
+      // Notifications: single confirmation + class reminders (non-blocking).
+      try {
+        const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+        await reservationNotificationService.notifySingleReservationCreated(reservation, { studioId });
+        await reservationNotificationService.scheduleRemindersForReservation(reservation, { studioId, timeZone });
+      } catch (notifyErr) {
+        console.error('[Notification] single reservation notify failed:', notifyErr && notifyErr.message);
+      }
       // Fetch enriched reservation for response
       const enriched = await Reservation.findOne({ where: { id: reservation.id, studioId },
         include: [{
@@ -609,6 +618,16 @@ exports.createReservation = async (req, res) => {
         }]
       }]
     });
+    // Notifications: ONE series summary + per-occurrence reminders (non-blocking).
+    try {
+      const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+      await reservationNotificationService.notifySeriesReservationCreated(created, { studioId });
+      for (const reservation of created) {
+        await reservationNotificationService.scheduleRemindersForReservation(reservation, { studioId, timeZone });
+      }
+    } catch (notifyErr) {
+      console.error('[Notification] recurring reservation notify failed:', notifyErr && notifyErr.message);
+    }
     res.status(201).json(created.map(formatReservation));
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -765,7 +784,6 @@ exports.deleteReservation = async (req, res) => {
         date: { [Op.gte]: dateStr },
         studioId,
       },
-      attributes: ['id']
     });
     const reservationIdsToDelete = reservationsToDelete.map((row) => row.id);
     if (reservationIdsToDelete.length > 0) {
@@ -778,6 +796,14 @@ exports.deleteReservation = async (req, res) => {
       if (linkedAttendance) {
         return res.status(409).json({ error: 'Silinecek rezervasyonlardan biri veya daha fazlası için yoklama alınmıştır. Önce ilgili yoklamaları siliniz.' });
       }
+    }
+
+    // Capture recipients + cancel reminders BEFORE hard deletion (non-blocking).
+    try {
+      const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+      await reservationNotificationService.notifyReservationCancelled(reservationsToDelete, { studioId, timeZone });
+    } catch (notifyErr) {
+      console.error('[Notification] series cancellation notify failed:', notifyErr && notifyErr.message);
     }
 
     await Reservation.destroy({
@@ -793,6 +819,14 @@ exports.deleteReservation = async (req, res) => {
   const linkedAttendance = await Attendance.findOne({ where: { reservationId: reservation.id, studioId } });
   if (linkedAttendance) {
     return res.status(409).json({ error: 'Bu rezervasyon için yoklama alınmıştır. Önce yoklamayı siliniz.' });
+  }
+
+  // Capture recipients + cancel reminders BEFORE hard deletion (non-blocking).
+  try {
+    const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+    await reservationNotificationService.notifyReservationCancelled([reservation], { studioId, timeZone });
+  } catch (notifyErr) {
+    console.error('[Notification] cancellation notify failed:', notifyErr && notifyErr.message);
   }
 
   // Default: delete only this reservation

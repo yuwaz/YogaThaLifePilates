@@ -3,6 +3,7 @@ const { withStudioWhere, getAuthenticatedStudioId } = require('../middleware/ten
 const {
   resolveAttendanceInstructor,
 } = require('../services/attendanceInstructorService');
+const packageNotificationService = require('../services/packageNotificationService');
 
 function getAssignedSalonIds(req) {
   const ids = req && req.user && Array.isArray(req.user.assignedSalonIds) ? req.user.assignedSalonIds : [];
@@ -180,6 +181,12 @@ exports.addAttendance = async (req, res) => {
       });
       member.remainingLessons = Number(member.remainingLessons) - 1;
       await member.save();
+      // Notification: remaining-lessons threshold (2/0) after successful attendance.
+      try {
+        await packageNotificationService.checkRemainingLessonsThreshold(memberId, { studioId });
+      } catch (notifyErr) {
+        console.error('[Notification] threshold check failed:', notifyErr && notifyErr.message);
+      }
       return res.status(201).json(attendance);
     }
   } catch (err) {
