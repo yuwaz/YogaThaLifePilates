@@ -73,14 +73,18 @@ function createFirebasePushTransport({ env = process.env, admin, appName } = {})
 
   function getMessaging() {
     if (messagingInstance) return messagingInstance;
-    const firebaseAdmin = admin || require('firebase-admin');
+    // firebase-admin 14.x: use the /app and /messaging subpath exports.
+    // The top-level default export has initializeApp/cert but NOT credential/apps.
+    const appMod = (admin && admin.app) || require('firebase-admin/app');
+    const messagingMod = (admin && admin.messaging) || require('firebase-admin/messaging');
     const credentials = readCredentialSource(env);
-    const appOptions = { credential: firebaseAdmin.credential.cert(credentials) };
+    const appOptions = { credential: appMod.cert(credentials) };
+    const existingApps = appMod.getApps();
     const existing = appName
-      ? firebaseAdmin.apps.find((a) => a && a.name === appName)
-      : firebaseAdmin.apps[0];
-    const app = existing || firebaseAdmin.initializeApp(appOptions, appName);
-    messagingInstance = app.messaging();
+      ? existingApps.find((a) => a && a.name === appName)
+      : existingApps[0];
+    const app = existing || appMod.initializeApp(appOptions, appName);
+    messagingInstance = messagingMod.getMessaging(app);
     return messagingInstance;
   }
 

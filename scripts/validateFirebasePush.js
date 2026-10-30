@@ -38,32 +38,36 @@ const notificationWorker = require('../services/notificationWorker');
 const notificationService = require('../services/notificationService');
 const deviceTokenService = require('../services/deviceTokenService');
 
-// Fake firebase-admin module (no real Firebase).
+// Fake firebase-admin module (no real Firebase). Matches the firebase-admin 14.x
+// subpath export shape: { app: { cert, initializeApp, getApps }, messaging: { getMessaging } }.
 function fakeFirebaseAdmin(behavior = {}) {
   const sentMessages = [];
   const apps = [];
   return {
     sentMessages,
     apps,
-    credential: { cert: (creds) => ({ _creds: 'cert' }) },
-    initializeApp(options, name) {
-      const app = {
-        name: name || '[DEFAULT]',
-        messaging: () => ({
-          send: async (message) => {
-            sentMessages.push(message);
-            if (behavior.fail) throw new Error('send failed');
-            if (behavior.invalidToken) {
-              const err = new Error('invalid token');
-              err.code = 'messaging/registration-token-not-registered';
-              throw err;
-            }
-            return 'message-id';
-          },
-        }),
-      };
-      apps.push(app);
-      return app;
+    app: {
+      cert: (creds) => ({ _creds: 'cert' }),
+      getApps: () => apps,
+      initializeApp(options, name) {
+        const app = { name: name || '[DEFAULT]' };
+        apps.push(app);
+        return app;
+      },
+    },
+    messaging: {
+      getMessaging: (app) => ({
+        send: async (message) => {
+          sentMessages.push(message);
+          if (behavior.fail) throw new Error('send failed');
+          if (behavior.invalidToken) {
+            const err = new Error('invalid token');
+            err.code = 'messaging/registration-token-not-registered';
+            throw err;
+          }
+          return 'message-id';
+        },
+      }),
     },
   };
 }
@@ -91,6 +95,23 @@ async function run() {
     const transport = createFirebasePushTransport({ env: { FIREBASE_SERVICE_ACCOUNT_JSON: VALID_CREDS }, admin: fakeAdmin });
     assert.strictEqual(fakeAdmin.apps.length, 0, 'no Firebase app on transport creation');
     console.log('Phase 1 OK: Firebase transport not initialized by import/creation');
+  }
+
+  // --- Phase 1b: real firebase-admin import shape (regression for cert/apps bug) ---
+  {
+    // Verify the real firebase-admin 14.x subpath exports the transport relies on.
+    // No credentials used; no app initialized; no push sent.
+    const appMod = require('firebase-admin/app');
+    const messagingMod = require('firebase-admin/messaging');
+    assert.strictEqual(typeof appMod.cert, 'function', 'firebase-admin/app cert is a function');
+    assert.strictEqual(typeof appMod.initializeApp, 'function', 'firebase-admin/app initializeApp is a function');
+    assert.strictEqual(typeof appMod.getApps, 'function', 'firebase-admin/app getApps is a function');
+    assert.strictEqual(typeof messagingMod.getMessaging, 'function', 'firebase-admin/messaging getMessaging is a function');
+    // The old buggy shape (admin.credential.cert / admin.apps) must NOT be relied on.
+    const topLevel = require('firebase-admin');
+    assert.strictEqual(topLevel.credential, undefined, 'top-level credential is undefined in 14.x (bug regression guard)');
+    assert.strictEqual(topLevel.apps, undefined, 'top-level apps is undefined in 14.x (bug regression guard)');
+    console.log('Phase 1b OK: real firebase-admin 14.x subpath shape verified');
   }
 
   // --- Phase 2: credential validation ---
