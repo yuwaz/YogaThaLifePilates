@@ -88,25 +88,57 @@ function createFirebasePushTransport({ env = process.env, admin, appName } = {})
     return messagingInstance;
   }
 
-  // Sends a generic, privacy-safe push. Never sends Notification.body or raw
-  // payload — only a generic title/body and the persisted notification id in
-  // data. All data values are strings (FCM requirement). The notificationId is
-  // the persisted Notifications.id passed by the caller — never derived from
-  // the notification payload.
-  async function send({ token, notificationId, title, body, payload, platform }) {
+  // Sends the real notification title/body. Data carries the persisted
+  // notification id, the notification type, and a small allowlist of scheduling
+  // metadata (reservation/salon/date/time/recurrence identifiers) so clients can
+  // deep-link. All data values are strings (FCM requirement). The
+  // notificationId is the persisted Notifications.id passed by the caller —
+  // never derived from the notification payload. The raw payload is never sent:
+  // only the allowlisted scalar fields below, so no secrets or unrelated
+  // personal data (debt amounts, phone numbers, etc.) can leak into FCM.
+  const DATA_METADATA_KEYS = [
+    'reservationId',
+    'recurrenceGroupId',
+    'salonId',
+    'date',
+    'time',
+    'oldDate',
+    'oldTime',
+    'newDate',
+    'newTime',
+    'firstDate',
+  ];
+
+  function safeDataString(value) {
+    if (value === null || value === undefined) return null;
+    const t = typeof value;
+    if (t !== 'string' && t !== 'number' && t !== 'boolean') return null;
+    const s = String(value);
+    return s.length <= 128 ? s : null;
+  }
+
+  async function send({ token, notificationId, title, body, payload, type, platform }) {
     const messaging = getMessaging();
     const safeNotificationId = notificationId != null ? String(notificationId) : '';
+
+    const data = {
+      notificationId: safeNotificationId,
+      type: safeDataString(type) || 'notification',
+    };
+    if (payload && typeof payload === 'object') {
+      for (const key of DATA_METADATA_KEYS) {
+        const s = safeDataString(payload[key]);
+        if (s !== null) data[key] = s;
+      }
+    }
 
     const message = {
       token,
       notification: {
-        title: 'CepStudio',
-        body: 'Yeni bir bildiriminiz var.',
+        title: typeof title === 'string' && title.trim() !== '' ? title : 'CepStudio',
+        body: typeof body === 'string' && body.trim() !== '' ? body : 'Yeni bir bildiriminiz var.',
       },
-      data: {
-        notificationId: safeNotificationId,
-        type: 'notification',
-      },
+      data,
     };
     return messaging.send(message);
   }

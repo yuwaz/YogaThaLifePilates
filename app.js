@@ -48,8 +48,10 @@ app.options('/auth/login', cors({
 // Auth routes (CORS also handled in router)
 app.use('/auth', authRoutes);
 app.use('/member-auth', memberAuthRoutes);
-app.use('/member', memberSelfRoutes);
+// '/member/notifications' must mount before '/member': memberSelf's router-wide
+// authenticateMemberContext would otherwise 401 every member notification request.
 app.use('/member/notifications', memberNotificationsRoutes);
+app.use('/member', memberSelfRoutes);
 app.use('/register', registerRoutes);
 app.use('/settings/users', usersRoutes);
 app.use('/settings/salons', salonsRoutes);

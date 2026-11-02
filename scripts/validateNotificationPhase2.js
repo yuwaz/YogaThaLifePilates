@@ -114,9 +114,12 @@ async function run() {
 
     await processAll();
     const confirmations = await Notification.findAll({ where: { studioId: studioA.id, type: 'reservation_confirmed' } });
-    assert.strictEqual(confirmations.length, 1, 'exactly one confirmation notification');
-    assert.strictEqual(Number(confirmations[0].recipientId), account.id);
-    assert.strictEqual(confirmations[0].recipientType, 'member');
+    const memberConfirmations = confirmations.filter((n) => n.recipientType === 'member');
+    const instructorConfirmations = confirmations.filter((n) => n.recipientType === 'instructor');
+    assert.strictEqual(memberConfirmations.length, 1, 'exactly one member confirmation notification');
+    assert.strictEqual(Number(memberConfirmations[0].recipientId), account.id);
+    assert.strictEqual(instructorConfirmations.length, 1, 'exactly one instructor confirmation notification');
+    assert.strictEqual(Number(instructorConfirmations[0].recipientId), instructorA.id);
     const memberReminders = await Notification.findAll({ where: { studioId: studioA.id, type: 'class_reminder', recipientType: 'member' } });
     const instructorReminders = await Notification.findAll({ where: { studioId: studioA.id, type: 'class_reminder', recipientType: 'instructor' } });
     assert.strictEqual(memberReminders.length, 1, 'one member reminder');
@@ -149,9 +152,13 @@ async function run() {
 
     await processAll();
     const seriesConfirmations = await Notification.findAll({ where: { studioId: studioA.id, type: 'reservation_series_confirmed' } });
-    assert.strictEqual(seriesConfirmations.length, 1, 'ONE series confirmation, not per occurrence');
-    assert.strictEqual(Number(seriesConfirmations[0].recipientId), account.id);
-    const seriesPayload = parsePayload(seriesConfirmations[0]);
+    const memberSeriesConfirmations = seriesConfirmations.filter((n) => n.recipientType === 'member');
+    const instructorSeriesConfirmations = seriesConfirmations.filter((n) => n.recipientType === 'instructor');
+    assert.strictEqual(memberSeriesConfirmations.length, 1, 'ONE member series confirmation, not per occurrence');
+    assert.strictEqual(Number(memberSeriesConfirmations[0].recipientId), account.id);
+    assert.strictEqual(instructorSeriesConfirmations.length, 1, 'ONE instructor series confirmation, not per occurrence');
+    assert.strictEqual(Number(instructorSeriesConfirmations[0].recipientId), instructorA.id);
+    const seriesPayload = parsePayload(memberSeriesConfirmations[0]);
     assert.strictEqual(seriesPayload.count, 4);
     assert.strictEqual(seriesPayload.recurrenceType, 'weekly');
     console.log('Phase 2 OK: ONE series confirmation + per-occurrence reminders');

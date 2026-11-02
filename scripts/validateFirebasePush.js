@@ -131,27 +131,85 @@ async function run() {
     console.log('Phase 2 OK: credential validation (ambiguous/missing/invalid)');
   }
 
-  // --- Phase 3: generic payload only (privacy) + persisted notification ID ---
+  // --- Phase 3: real title/body + allowlisted metadata only (no raw payload) ---
   {
     const fakeAdmin = fakeFirebaseAdmin();
     const transport = createFirebasePushTransport({ env: { FIREBASE_SERVICE_ACCOUNT_JSON: VALID_CREDS }, admin: fakeAdmin });
     await transport.send({
       token: 'device-token-123',
       notificationId: 42, // persisted Notifications.id
-      title: 'Ders Hatırlatması', // real title NOT sent
-      body: 'Üye Ahmet borcunu ödemedi 500 TL', // sensitive body NOT sent
-      payload: { memberName: 'Ahmet', debt: 500 }, // private data NOT sent
+      title: 'Ders Hatırlatması',
+      body: 'Dersiniz 2026-11-05 10:00 tarihinde.',
+      type: 'class_reminder',
+      payload: { reservationId: 7, date: '2026-11-05', time: '10:00', memberName: 'Ahmet', debt: 500 },
       platform: 'ios',
     });
     assert.strictEqual(fakeAdmin.sentMessages.length, 1, 'one message sent');
     const msg = fakeAdmin.sentMessages[0];
-    assert.strictEqual(msg.notification.title, 'CepStudio', 'generic title');
-    assert.strictEqual(msg.notification.body, 'Yeni bir bildiriminiz var.', 'generic body');
-    assert.deepStrictEqual(msg.data, { notificationId: '42', type: 'notification' }, 'persisted notificationId in data (string)');
-    assert.ok(!JSON.stringify(msg).includes('Ahmet'), 'no member name');
-    assert.ok(!JSON.stringify(msg).includes('500'), 'no debt amount');
-    assert.ok(!JSON.stringify(msg).includes('Ders Hatırlatması'), 'no real title');
-    console.log('Phase 3 OK: generic payload + persisted notification ID');
+    assert.strictEqual(msg.notification.title, 'Ders Hatırlatması', 'real title sent');
+    assert.strictEqual(msg.notification.body, 'Dersiniz 2026-11-05 10:00 tarihinde.', 'real body sent');
+    assert.deepStrictEqual(msg.data, {
+      notificationId: '42',
+      type: 'class_reminder',
+      reservationId: '7',
+      date: '2026-11-05',
+      time: '10:00',
+    }, 'persisted notificationId + type + allowlisted metadata as strings');
+    assert.ok(!JSON.stringify(msg).includes('Ahmet'), 'no member name (not allowlisted)');
+    assert.ok(!JSON.stringify(msg).includes('500'), 'no debt amount (not allowlisted)');
+    console.log('Phase 3 OK: real title/body + allowlisted metadata only');
+  }
+
+  // --- Phase 3c: reservation_updated metadata + non-allowlisted/oversized values dropped ---
+  {
+    const fakeAdmin = fakeFirebaseAdmin();
+    const transport = createFirebasePushTransport({ env: { FIREBASE_SERVICE_ACCOUNT_JSON: VALID_CREDS }, admin: fakeAdmin });
+    await transport.send({
+      token: 'device-token-789',
+      notificationId: 43,
+      title: 'Rezervasyon Güncellendi',
+      body: 'Rezervasyonunuz 2026-11-05 10:00 tarihinden 2026-11-06 11:00 tarihine güncellendi.',
+      type: 'reservation_updated',
+      payload: {
+        reservationId: 9,
+        recurrenceGroupId: 'recurr_1_2',
+        salonId: 3,
+        oldDate: '2026-11-05', oldTime: '10:00',
+        newDate: '2026-11-06', newTime: '11:00',
+        memberName: 'Ayse', // not allowlisted
+        nested: { a: 1 }, // non-scalar dropped
+        longValue: 'x'.repeat(200), // oversized dropped
+      },
+      platform: 'android',
+    });
+    const msg = fakeAdmin.sentMessages[0];
+    assert.strictEqual(msg.notification.title, 'Rezervasyon Güncellendi');
+    assert.deepStrictEqual(msg.data, {
+      notificationId: '43',
+      type: 'reservation_updated',
+      reservationId: '9',
+      recurrenceGroupId: 'recurr_1_2',
+      salonId: '3',
+      oldDate: '2026-11-05',
+      oldTime: '10:00',
+      newDate: '2026-11-06',
+      newTime: '11:00',
+    }, 'old/new reservation metadata stringified, non-allowlisted dropped');
+    assert.ok(!JSON.stringify(msg).includes('Ayse'), 'no member name');
+    assert.ok(!JSON.stringify(msg).includes('nested'), 'no nested objects');
+    console.log('Phase 3c OK: reservation_updated metadata + unsafe values dropped');
+  }
+
+  // --- Phase 3d: fallback title/body + default type when missing ---
+  {
+    const fakeAdmin = fakeFirebaseAdmin();
+    const transport = createFirebasePushTransport({ env: { FIREBASE_SERVICE_ACCOUNT_JSON: VALID_CREDS }, admin: fakeAdmin });
+    await transport.send({ token: 'device-token-000', notificationId: null, title: '', body: null, payload: null });
+    const msg = fakeAdmin.sentMessages[0];
+    assert.strictEqual(msg.notification.title, 'CepStudio', 'fallback title');
+    assert.strictEqual(msg.notification.body, 'Yeni bir bildiriminiz var.', 'fallback body');
+    assert.deepStrictEqual(msg.data, { notificationId: '', type: 'notification' }, 'default type + empty id');
+    console.log('Phase 3d OK: fallback title/body + default type');
   }
 
   // --- Phase 3b: no fallback to arbitrary payload IDs ---
@@ -284,7 +342,10 @@ async function run() {
     const deviceCount = await NotificationPushDelivery.count({ where: { notificationId: notif.id } });
     assert.strictEqual(sentForNotif.length, deviceCount, `push sent with persisted notification id for all ${deviceCount} devices`);
     assert.ok(sentForNotif.length >= 1, 'at least one push with persisted id');
-    console.log('Phase 9 OK: end-to-end persisted notification ID in push data');
+    // Real content flows end-to-end: title from the inbox row, type in data.
+    assert.strictEqual(sentForNotif[0].notification.title, 'PersistedID', 'real title end-to-end');
+    assert.strictEqual(sentForNotif[0].data.type, 'class_reminder', 'real notification type in data end-to-end');
+    console.log('Phase 9 OK: end-to-end persisted notification ID + real content in push data');
   }
 
   // --- Phase 10: firebase-admin declared as a production dependency ---

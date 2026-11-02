@@ -40,13 +40,17 @@ const notificationWorker = require('../services/notificationWorker');
 const notificationService = require('../services/notificationService');
 const { getStudioLocalDate } = require('../services/instructorFeeHistoryService');
 
-// Build a minimal Express app mounting ONLY the notification routes (avoids
-// importing app.js, which starts a production listener).
+// Build a minimal Express app mounting the member + notification routers in the
+// SAME order as production app.js (avoids importing app.js, which starts a
+// production listener). '/member/notifications' MUST precede '/member':
+// memberSelf's router-wide authenticateMemberContext would otherwise 401 every
+// member notification request (it requires a context token, not a global one).
 function buildTestApp() {
   const app = express();
   app.use(cors());
   app.use(bodyParser.json());
   app.use('/member/notifications', require('../routes/memberNotifications'));
+  app.use('/member', require('../routes/memberSelf'));
   app.use('/settings/notifications', require('../routes/settings/notifications'));
   app.use((req, res) => res.status(404).json({ message: 'Not found' }));
   return app;
@@ -248,6 +252,27 @@ async function run() {
       const res = await requestJson(baseUrl, 'GET', '/member/notifications', { token: contextToken });
       assert.strictEqual(res.status, 401, 'context token rejected for member inbox');
       console.log('M2 OK: context token cannot substitute global token');
+    }
+
+    // --- M2b: production mount order (/member/notifications before /member) ---
+    // Regression guard for the 401 bug: with memberSelf mounted AFTER the
+    // notifications router (as in app.js), the global token must still reach the
+    // member inbox, while the memberSelf context guard must stay intact.
+    {
+      const membership = await MemberAccountMembership.findOne({ where: { accountId: accountA1.id, studioId: studioA.id } });
+      const contextToken = signMemberContextToken({
+        accountId: accountA1.id, membershipId: membership.id, studioId: studioA.id, memberId: membership.memberId, tokenVersion: 0,
+      });
+      // Global token reaches the inbox even though '/member' is mounted after.
+      const inbox = await requestJson(baseUrl, 'GET', '/member/notifications', { token: memberTokenA1 });
+      assert.strictEqual(inbox.status, 200, `global token inbox 200 with production mount order, got ${inbox.status}`);
+      // Context token still passes the memberSelf guard.
+      const selfRes = await requestJson(baseUrl, 'GET', '/member/self', { token: contextToken });
+      assert.strictEqual(selfRes.status, 200, `context token /member/self 200, got ${selfRes.status}`);
+      // Global token must NOT pass the memberSelf context guard.
+      const globalOnSelf = await requestJson(baseUrl, 'GET', '/member/self', { token: memberTokenA1 });
+      assert.strictEqual(globalOnSelf.status, 401, 'global token rejected by /member/self');
+      console.log('M2b OK: production mount order (notifications before memberSelf, auth preserved)');
     }
 
     // --- M3: multiple active studios visible ---

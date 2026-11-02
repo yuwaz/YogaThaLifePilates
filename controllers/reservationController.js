@@ -33,6 +33,7 @@ exports.updateReservation = async (req, res) => {
 
     // If single reservation and repeatWeekly === true, convert to weekly recurring
     if (!reservation.recurrenceGroupId && repeatWeekly === true) {
+      const oldSlot = { date: reservation.get('date'), time: reservation.get('time'), salonId: reservation.get('salonId') };
       const hasDuplicateSelectedDate = await hasMemberDateReservation(memberId, date, {
         excludeReservationId: reservation.id,
         studioId,
@@ -113,11 +114,29 @@ exports.updateReservation = async (req, res) => {
           }]
         }]
       });
+      // Notifications: date/time change for the converted reservation + series
+      // confirmation + per-occurrence reminders (non-blocking).
+      try {
+        const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+        if (oldSlot.date !== date || oldSlot.time !== time) {
+          await reservationNotificationService.notifyReservationUpdated([{
+            reservationId: reservation.id, memberId: reservation.memberId, salonId: reservation.salonId,
+            oldDate: oldSlot.date, oldTime: oldSlot.time, newDate: date, newTime: time,
+          }], { studioId, timeZone });
+        }
+        await reservationNotificationService.notifySeriesReservationCreated(created, { studioId });
+        for (const row of created) {
+          await reservationNotificationService.scheduleRemindersForReservation(row, { studioId, timeZone });
+        }
+      } catch (notifyErr) {
+        console.error('[Notification] recurring conversion notify failed:', notifyErr && notifyErr.message);
+      }
       return res.json(created.map(formatReservation));
     }
 
     // Default: update only selected reservation
     if (!updateScope || updateScope === 'single' || !reservation.recurrenceGroupId) {
+      const oldSlot = { date: reservation.get('date'), time: reservation.get('time'), salonId: reservation.get('salonId') };
       const hasDuplicateDate = await hasMemberDateReservation(memberId, date, {
         excludeReservationId: reservation.id,
         studioId,
@@ -145,6 +164,18 @@ exports.updateReservation = async (req, res) => {
       reservation.date = date;
       reservation.time = time;
       await reservation.save();
+      // Notifications: date/time change -> notify + reschedule reminders (non-blocking).
+      if (oldSlot.date !== date || oldSlot.time !== time) {
+        try {
+          const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+          await reservationNotificationService.notifyReservationUpdated([{
+            reservationId: reservation.id, memberId: reservation.memberId, salonId: reservation.salonId,
+            oldDate: oldSlot.date, oldTime: oldSlot.time, newDate: date, newTime: time,
+          }], { studioId, timeZone });
+        } catch (notifyErr) {
+          console.error('[Notification] reservation update notify failed:', notifyErr && notifyErr.message);
+        }
+      }
       // Fetch enriched reservation for response
       const enriched = await Reservation.findOne({ where: { id: reservation.id, studioId },
         include: [{
@@ -170,7 +201,7 @@ exports.updateReservation = async (req, res) => {
         date: { [Op.gte]: dateStr },
         studioId,
       },
-      attributes: ['id', 'date']
+      attributes: ['id', 'date', 'time', 'memberId', 'salonId']
     });
 
     for (const target of targetReservations) {
@@ -231,6 +262,20 @@ exports.updateReservation = async (req, res) => {
         }]
       }]
     });
+    // Notifications: time change for the whole future scope -> notify per
+    // reservation + reschedule reminders (non-blocking).
+    try {
+      const timeZone = await reservationNotificationService.getStudioTimezoneById(studioId);
+      const changes = targetReservations
+        .filter((target) => String(target.get('time')) !== String(time))
+        .map((target) => ({
+          reservationId: target.get('id'), memberId: target.get('memberId'), salonId: target.get('salonId'),
+          oldDate: target.get('date'), oldTime: target.get('time'), newDate: target.get('date'), newTime: time,
+        }));
+      await reservationNotificationService.notifyReservationUpdated(changes, { studioId, timeZone });
+    } catch (notifyErr) {
+      console.error('[Notification] future-scope update notify failed:', notifyErr && notifyErr.message);
+    }
     return res.json(updated.map(formatReservation));
   } catch (err) {
     res.status(400).json({ error: err.message });

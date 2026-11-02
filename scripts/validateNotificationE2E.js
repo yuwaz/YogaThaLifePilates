@@ -144,9 +144,12 @@ async function run() {
     await createReservation(member.id, date, '10:00');
     await processAll();
     const notifs = await Notification.findAll({ where: { studioId: studioA.id, type: 'reservation_confirmed' } });
-    assert.strictEqual(notifs.length, 1, 'one confirmation');
-    assert.strictEqual(Number(notifs[0].recipientId), account.id, 'member recipient');
-    assert.strictEqual(notifs[0].recipientType, 'member');
+    const memberNotifs = notifs.filter((n) => n.recipientType === 'member');
+    const instructorNotifs = notifs.filter((n) => n.recipientType === 'instructor');
+    assert.strictEqual(memberNotifs.length, 1, 'one member confirmation');
+    assert.strictEqual(Number(memberNotifs[0].recipientId), account.id, 'member recipient');
+    assert.strictEqual(instructorNotifs.length, 1, 'one instructor confirmation');
+    assert.strictEqual(Number(instructorNotifs[0].recipientId), instructorA.id, 'instructor recipient');
     console.log('E1 OK: single reservation confirmation -> inbox');
   }
 
@@ -157,9 +160,13 @@ async function run() {
     await createReservation(member.id, date, '11:00', { repeatWeekly: true, recurrenceEndDate: await studioDaysFromNow(studioA.id, 26) });
     await processAll();
     const notifs = await Notification.findAll({ where: { studioId: studioA.id, type: 'reservation_series_confirmed' } });
-    assert.strictEqual(notifs.length, 1, 'ONE series summary');
-    assert.strictEqual(Number(notifs[0].recipientId), account.id);
-    assert.strictEqual(parsePayload(notifs[0]).recurrenceType, 'weekly');
+    const memberNotifs = notifs.filter((n) => n.recipientType === 'member');
+    const instructorNotifs = notifs.filter((n) => n.recipientType === 'instructor');
+    assert.strictEqual(memberNotifs.length, 1, 'ONE member series summary');
+    assert.strictEqual(Number(memberNotifs[0].recipientId), account.id);
+    assert.strictEqual(parsePayload(memberNotifs[0]).recurrenceType, 'weekly');
+    assert.strictEqual(instructorNotifs.length, 1, 'ONE instructor series summary');
+    assert.strictEqual(Number(instructorNotifs[0].recipientId), instructorA.id);
     console.log('E2 OK: recurring reservation -> ONE summary');
   }
 

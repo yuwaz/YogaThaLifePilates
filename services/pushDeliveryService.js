@@ -169,6 +169,7 @@ async function processDuePushDeliveries({ transport, limit = 25, now = new Date(
         title: notification.title,
         body: notification.body,
         payload: notification.payload,
+        type: notification.type,
         platform: device.platform,
       });
 
