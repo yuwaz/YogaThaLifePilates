@@ -81,7 +81,10 @@ function packagePayload(assignment) {
     packageId: assignment.lessonPackageId,
     name: assignment.LessonPackage?.name || null,
     lessonCount: assignment.LessonPackage?.lessonCount || null,
-    price: assignment.LessonPackage?.price || null,
+    // Assigned net price (what the member was charged), not the catalog price.
+    price: assignment.finalPrice != null
+      ? assignment.finalPrice
+      : (assignment.originalPrice != null ? assignment.originalPrice : (assignment.LessonPackage?.price || null)),
     assignedAt: assignment.assignedAt,
     originalPrice: assignment.originalPrice,
     discountType: assignment.discountType,

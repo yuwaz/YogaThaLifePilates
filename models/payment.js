@@ -14,8 +14,12 @@ module.exports = (sequelize) => {
     amount: {
       type: DataTypes.DECIMAL(10,2),
       allowNull: false,
+      // Signed: positive = payment (reduces debt), negative = refund (increases
+      // balance / reduces credit). Zero is rejected by the controllers.
       validate: {
-        min: 0,
+        notZero(value) {
+          if (Number(value) === 0) throw new Error('Amount must not be zero');
+        },
       },
     },
     paymentMethodId: {

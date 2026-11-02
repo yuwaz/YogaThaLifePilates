@@ -61,6 +61,9 @@ exports.getReports = async (req, res) => {
     const receivedPayments = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const pendingPayments = members.reduce((sum, m) => sum + Number(m.totalDebt || 0), 0);
     const totalDebt = members.reduce((sum, m) => sum + Number(m.totalDebt || 0), 0);
+    // Member credit (negative balances) reported separately so prepaid credit
+    // is visible instead of only netting down totalDebt.
+    const prepaidCredit = members.reduce((sum, m) => sum + Math.min(0, Number(m.totalDebt || 0)), 0);
     // --- Sold Package Revenue Calculation ---
     const { MemberLessonPackage } = require('../models');
     let soldPackageRevenue = 0;
@@ -493,6 +496,7 @@ exports.getReports = async (req, res) => {
         receivedPayments,
         pendingPayments,
         totalDebt,
+        prepaidCredit,
         soldPackageCount,
         soldLessonCount,
         soldLessonHours,
@@ -521,7 +525,8 @@ exports.getReports = async (req, res) => {
       paymentBreakdown: {
         received: receivedPayments,
         pending: pendingPayments,
-        totalDebt
+        totalDebt,
+        prepaidCredit
       },
       occupancyBreakdown,
       cardBasedSummary,

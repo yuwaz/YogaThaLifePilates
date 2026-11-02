@@ -9,27 +9,25 @@ exports.deleteAssignedLessonPackage = async (req, res) => {
     include: [{ model: LessonPackage, attributes: ['lessonCount', 'price'] }]
   });
   if (!assignment) return res.sendStatus(404);
-  // Debug logs before update
-  const beforeLessons = member.remainingLessons;
-  const beforeDebt = member.totalDebt;
+  // Reverse the PERSISTED assignment price (finalPrice, falling back to
+  // originalPrice for legacy rows), never the current catalog price — the
+  // catalog price may have changed since assignment and ignores discounts.
+  // lessonCount has no persisted counterpart, so it still comes from the
+  // catalog row when available.
   const lessonCount = assignment.LessonPackage ? assignment.LessonPackage.lessonCount : null;
-  const price = assignment.LessonPackage ? assignment.LessonPackage.price : null;
-  console.log('[deleteAssignedLessonPackage] memberId:', memberId);
-  console.log('[deleteAssignedLessonPackage] assignmentId:', assignedPackageId);
-  console.log('[deleteAssignedLessonPackage] member.remainingLessons before:', beforeLessons);
-  console.log('[deleteAssignedLessonPackage] member.totalDebt before:', beforeDebt);
-  console.log('[deleteAssignedLessonPackage] assigned package lessonCount:', lessonCount);
-  console.log('[deleteAssignedLessonPackage] assigned package price:', price);
-  if (lessonCount == null) console.log('[deleteAssignedLessonPackage] WARNING: lessonCount is null/undefined');
-  if (price == null) console.log('[deleteAssignedLessonPackage] WARNING: price is null/undefined');
-  // Reverse effect
-  if (assignment.LessonPackage) {
+  const price = assignment.finalPrice != null
+    ? Number(assignment.finalPrice)
+    : (assignment.originalPrice != null ? Number(assignment.originalPrice) : null);
+  if (lessonCount != null) {
     member.remainingLessons = Math.max(0, Number(member.remainingLessons) - Number(lessonCount));
-    member.totalDebt = Math.max(0, Number(member.totalDebt) - Number(price));
+  }
+  // No zero clamp: member credit (negative balance) must survive package
+  // deletion; balances are never silently clamped.
+  if (price != null) {
+    member.totalDebt = Number(member.totalDebt) - price;
+  }
+  if (lessonCount != null || price != null) {
     await member.save();
-    // Debug logs after update
-    console.log('[deleteAssignedLessonPackage] member.remainingLessons after:', member.remainingLessons);
-    console.log('[deleteAssignedLessonPackage] member.totalDebt after:', member.totalDebt);
   }
   await assignment.destroy();
   res.sendStatus(204);
@@ -388,7 +386,8 @@ exports.getMember = async (req, res) => {
     lessonPackageId: a.lessonPackageId,
     name: a.LessonPackage?.name,
     lessonCount: a.LessonPackage?.lessonCount,
-    price: a.LessonPackage?.price,
+    // Assigned net price (what the member was charged), not the catalog price.
+    price: a.finalPrice != null ? a.finalPrice : (a.originalPrice != null ? a.originalPrice : a.LessonPackage?.price),
     assignedAt: a.assignedAt,
     originalPrice: a.originalPrice,
     discountType: a.discountType,
@@ -546,9 +545,13 @@ exports.deleteMember = async (req, res) => {
     if (!member) {
       return res.status(404).json({ message: 'Member not found' });
     }
-    // Business rule 1: Block if member has debt
+    // Business rule 1: Block on ANY nonzero balance — outstanding debt or
+    // unused member credit (negative balance) must be settled/refunded first.
     if (Number(member.totalDebt) > 0) {
       return res.status(400).json({ message: 'Borcu olan üye pasifleştirilemez. Lütfen önce borcu kapatın.' });
+    }
+    if (Number(member.totalDebt) < 0) {
+      return res.status(400).json({ message: 'Kredi bakiyesi olan üye pasifleştirilemez. Lütfen önce krediyi iade edin.' });
     }
     // Business rule 2: If member has remaining lessons, require confirmation
     const confirmResetLessons = req.body?.confirmResetLessons === true || req.query?.confirmResetLessons === 'true';
@@ -648,21 +651,32 @@ exports.addLessonPackage = async (req, res) => {
   }
 };
 
-// Track payment
+// Track payment (positive amount) or refund (negative amount). Same signed
+// balance rule as paymentController: balance = net charges − signed payments.
+// Overpayment creates member credit (negative balance). A refund may not exceed
+// the member's available credit.
 exports.addPayment = async (req, res) => {
   try {
     const { amount, paymentMethodId, date } = req.body;
     const studioId = getAuthenticatedStudioId(req);
-    if (!amount || !paymentMethodId || !date) return res.status(400).json({ error: 'Missing required fields' });
-    if (isNaN(amount) || Number(amount) < 0) return res.status(400).json({ error: 'Amount must be a non-negative number' });
+    if (amount === undefined || amount === null || !paymentMethodId || !date) return res.status(400).json({ error: 'Missing required fields' });
+    if (isNaN(amount) || Number(amount) === 0) return res.status(400).json({ error: 'Amount must be a non-zero number (negative for refunds)' });
     const member = await Member.findOne({ where: withStudioWhere(req, { id: req.params.id }) });
     if (!member) return res.sendStatus(404);
     const paymentMethod = await PaymentMethod.findOne({ where: { id: paymentMethodId, studioId } });
     if (!paymentMethod) return res.sendStatus(404);
-    const newDebt = Number(member.totalDebt) - Number(amount);
-    if (newDebt < 0) return res.status(400).json({ error: 'totalDebt cannot be negative' });
-    const payment = await Payment.create({ memberId: member.id, amount, paymentMethodId, date, studioId });
-    member.totalDebt = newDebt;
+    const signedAmount = Number(amount);
+    if (signedAmount < 0) {
+      const credit = Math.max(0, -Number(member.totalDebt));
+      if (credit <= 0) {
+        return res.status(400).json({ error: 'Üyenin iade edilebilecek kredi bakiyesi yok.' });
+      }
+      if (Math.abs(signedAmount) > credit) {
+        return res.status(400).json({ error: `İade tutarı üyenin kredi bakiyesini aşamaz (kredi: ${credit}).` });
+      }
+    }
+    const payment = await Payment.create({ memberId: member.id, amount: signedAmount, paymentMethodId, date, studioId });
+    member.totalDebt = Number(member.totalDebt) - signedAmount;
     await member.save();
     res.status(201).json(payment);
   } catch (err) {
