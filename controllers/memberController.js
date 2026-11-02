@@ -32,6 +32,120 @@ exports.deleteAssignedLessonPackage = async (req, res) => {
   await assignment.destroy();
   res.sendStatus(204);
 };
+// Edit assigned lesson package pricing (originalPrice/discountType/discountValue).
+// finalPrice is computed server-side with the same discount rules as
+// addLessonPackage. Package identity, lesson count, dates and remainingLessons
+// are immutable. In ONE transaction: persist the new pricing and shift
+// member.totalDebt by (newFinalPrice - oldFinalPrice) — no clamp, so member
+// credit (negative balance) is preserved. Payment/refund records are untouched.
+exports.updateAssignedLessonPackage = async (req, res) => {
+  const { sequelize } = require('../models');
+  try {
+    const { memberId, assignedPackageId } = req.params;
+    const { originalPrice, discountType, discountValue } = req.body || {};
+
+    // Reject immutable/unknown fields explicitly.
+    const allowed = new Set(['originalPrice', 'discountType', 'discountValue']);
+    for (const key of Object.keys(req.body || {})) {
+      if (!allowed.has(key)) {
+        return res.status(400).json({ error: `Field '${key}' cannot be edited on an assigned package` });
+      }
+    }
+
+    const member = await Member.findOne({ where: withStudioWhere(req, { id: memberId }) });
+    if (!member) return res.sendStatus(404);
+    const assignment = await MemberLessonPackage.findOne({
+      where: withStudioWhere(req, { id: assignedPackageId, memberId: member.id }),
+    });
+    if (!assignment) return res.sendStatus(404);
+
+    // New values default to current ones.
+    const newOriginalPrice = originalPrice !== undefined ? Number(originalPrice) : Number(assignment.originalPrice);
+    if (isNaN(newOriginalPrice) || newOriginalPrice < 0) {
+      return res.status(400).json({ error: 'originalPrice must be a non-negative number' });
+    }
+    const newDiscountType = discountType !== undefined ? discountType : assignment.discountType;
+    const newDiscountValue = discountValue !== undefined ? discountValue : assignment.discountValue;
+
+    // Same discount rules as addLessonPackage.
+    let finalPrice = newOriginalPrice;
+    let safeDiscountType = null;
+    let safeDiscountValue = null;
+    if (newDiscountType === 'amount' || newDiscountType === 'percent') {
+      safeDiscountType = newDiscountType;
+      safeDiscountValue = Number(newDiscountValue) || 0;
+      if (newDiscountType === 'amount') {
+        if (safeDiscountValue < 0 || safeDiscountValue > newOriginalPrice) {
+          return res.status(400).json({ error: 'Invalid discount amount' });
+        }
+        finalPrice = newOriginalPrice - safeDiscountValue;
+      } else {
+        if (safeDiscountValue < 0 || safeDiscountValue > 100) {
+          return res.status(400).json({ error: 'Invalid discount percent' });
+        }
+        finalPrice = newOriginalPrice * (1 - safeDiscountValue / 100);
+      }
+      if (finalPrice < 0) finalPrice = 0;
+    } else if (newDiscountType !== null && newDiscountType !== undefined) {
+      return res.status(400).json({ error: 'discountType must be null, amount or percent' });
+    }
+
+    // Pre-image from the PRE-TRANSACTION read. The optimistic lock below compares
+    // against this snapshot: if a concurrent edit changed the persisted pricing
+    // after our read, the conditional UPDATE matches 0 rows -> 409, and the
+    // balance is never touched.
+    const preImage = {
+      originalPrice: assignment.originalPrice,
+      discountType: assignment.discountType,
+      discountValue: assignment.discountValue,
+      finalPrice: assignment.finalPrice,
+    };
+    const oldFinalPrice = Number(preImage.finalPrice != null ? preImage.finalPrice : preImage.originalPrice);
+
+    await sequelize.transaction(async (t) => {
+      // Optimistic concurrency: the UPDATE only applies when the persisted
+      // pricing still matches the pre-transaction snapshot.
+      const lockWhere = {
+        id: assignment.id,
+        memberId: member.id,
+        studioId: assignment.studioId,
+        finalPrice: preImage.finalPrice,
+      };
+      // discountType/discountValue may be null; include them in the lock only
+      // when non-null to keep the WHERE clause valid.
+      if (preImage.discountType != null) lockWhere.discountType = preImage.discountType;
+      if (preImage.discountValue != null) lockWhere.discountValue = preImage.discountValue;
+      if (preImage.originalPrice != null) lockWhere.originalPrice = preImage.originalPrice;
+
+      const [matched] = await MemberLessonPackage.update(
+        {
+          originalPrice: newOriginalPrice,
+          discountType: safeDiscountType,
+          discountValue: safeDiscountValue,
+          finalPrice,
+        },
+        { where: lockWhere, transaction: t }
+      );
+      if (matched !== 1) throw { status: 409, message: 'Assigned package was modified concurrently; retry' };
+
+      member.totalDebt = Number(member.totalDebt) + (finalPrice - oldFinalPrice);
+      await member.save({ transaction: t });
+    });
+
+    res.json({
+      memberId: member.id,
+      assignedPackageId: assignment.id,
+      originalPrice: newOriginalPrice,
+      discountType: safeDiscountType,
+      discountValue: safeDiscountValue,
+      finalPrice,
+      oldFinalPrice,
+      memberTotalDebt: member.totalDebt,
+    });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message || 'Failed to update assigned package' });
+  }
+};
 // Restore/reactivate member (admin only)
 exports.restoreMember = async (req, res) => {
   try {

@@ -13,6 +13,8 @@ router.post('/:id/recovery-code', authorizeRoles(['admin']), activationControlle
 
 // Delete assigned lesson package from member
 router.delete('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizePagePermission('members'), controller.deleteAssignedLessonPackage);
+// Edit assigned lesson package pricing
+router.put('/:memberId/assigned-lesson-packages/:assignedPackageId', authorizePagePermission('members'), controller.updateAssignedLessonPackage);
 // Restore/reactivate member
 router.post('/:id/restore', authorizePagePermission('members'), controller.restoreMember);
 router.get('/', authorizeRoles(['admin', 'instructor']), controller.getMembers);
