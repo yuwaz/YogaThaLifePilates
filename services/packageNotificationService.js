@@ -30,7 +30,10 @@ function daysBetween(aStr, bStr) {
 
 // Builds the member + assigned instructor + admin recipient notification list.
 // Instructor is resolved per member (assigned only); admins are same-studio.
-async function buildMemberInstructorAdminNotifications({ studioId, memberId, type, title, body, payload }) {
+// `staffBody` (optional) is used for instructor/admin copies so staff-facing
+// text can identify the member while the member copy stays unchanged.
+async function buildMemberInstructorAdminNotifications({ studioId, memberId, type, title, body, staffBody, payload }) {
+  const effectiveStaffBody = staffBody || body;
   const notifications = [];
   const memberAccountId = await resolveMemberRecipient(studioId, memberId);
   if (memberAccountId) {
@@ -38,11 +41,11 @@ async function buildMemberInstructorAdminNotifications({ studioId, memberId, typ
   }
   const instructorId = await resolveInstructorRecipientForMember(studioId, memberId);
   if (instructorId) {
-    notifications.push({ recipientType: 'instructor', recipientId: instructorId, type, title, body, payload });
+    notifications.push({ recipientType: 'instructor', recipientId: instructorId, type, title, body: effectiveStaffBody, payload });
   }
   const adminIds = await resolveAdminRecipients(studioId);
   for (const adminId of adminIds) {
-    notifications.push({ recipientType: 'admin', recipientId: adminId, type, title, body, payload });
+    notifications.push({ recipientType: 'admin', recipientId: adminId, type, title, body: effectiveStaffBody, payload });
   }
   return notifications;
 }
@@ -77,7 +80,7 @@ async function notifyPackageAssigned(assignment, { studioId }) {
 async function checkRemainingLessonsThreshold(memberId, { studioId }) {
   const member = await Member.findOne({
     where: { id: memberId, studioId, isActive: true, deletedAt: null },
-    attributes: ['id', 'remainingLessons', 'assignedInstructorId'],
+    attributes: ['id', 'name', 'remainingLessons', 'assignedInstructorId'],
   });
   if (!member) return;
 
@@ -96,10 +99,14 @@ async function checkRemainingLessonsThreshold(memberId, { studioId }) {
   const body = remaining === 0
     ? 'Üyenin ders paketinde ders kalmadı.'
     : `Üyenin ders paketinde ${lowThreshold} ders kaldı.`;
+  // Staff copies identify the member; the member copy stays unchanged.
+  const staffBody = remaining === 0
+    ? `${member.name} adlı üyenin ders paketinde ders kalmadı.`
+    : `${member.name} adlı üyenin ders paketinde ${lowThreshold} ders kaldı.`;
 
   const notifications = await buildMemberInstructorAdminNotifications({
-    studioId, memberId, type, title, body,
-    payload: { memberId, remainingLessons: remaining, cycle },
+    studioId, memberId, type, title, body, staffBody,
+    payload: { memberId, memberName: member.name, remainingLessons: remaining, cycle },
   });
   if (notifications.length === 0) return;
 
@@ -243,7 +250,7 @@ async function checkMemberInactivity({ studioId, now = new Date() } = {}) {
 
   const members = await Member.findAll({
     where: { studioId, isActive: true, deletedAt: null },
-    attributes: ['id', 'assignedInstructorId'],
+    attributes: ['id', 'name', 'assignedInstructorId'],
   });
 
   let enqueued = 0;
@@ -261,8 +268,9 @@ async function checkMemberInactivity({ studioId, now = new Date() } = {}) {
     const daysInactive = daysBetween(lastDate, today);
     if (daysInactive !== inactivityDays) continue; // fire exactly at the threshold
 
-    // Recipients: assigned instructor + admins (NOT the member).
-    const inactivityBody = `Üye ${inactivityDays} gündür derse katılmadı.`;
+    // Recipients: assigned instructor + admins (NOT the member). Staff-only
+    // notification, so the body identifies the member by name.
+    const inactivityBody = `${member.name} adlı üye ${inactivityDays} gündür derse katılmadı.`;
     const notifications = [];
     const instructorId = await resolveInstructorRecipientForMember(studioId, member.id);
     if (instructorId) {
@@ -270,7 +278,7 @@ async function checkMemberInactivity({ studioId, now = new Date() } = {}) {
         recipientType: 'instructor', recipientId: instructorId,
         type: 'member_inactive', title: 'Üye İnaktif',
         body: inactivityBody,
-        payload: { memberId: member.id, daysInactive },
+        payload: { memberId: member.id, memberName: member.name, daysInactive },
       });
     }
     const adminIds = await resolveAdminRecipients(studioId);
@@ -279,7 +287,7 @@ async function checkMemberInactivity({ studioId, now = new Date() } = {}) {
         recipientType: 'admin', recipientId: adminId,
         type: 'member_inactive', title: 'Üye İnaktif',
         body: inactivityBody,
-        payload: { memberId: member.id, daysInactive },
+        payload: { memberId: member.id, memberName: member.name, daysInactive },
       });
     }
     if (notifications.length === 0) continue;
