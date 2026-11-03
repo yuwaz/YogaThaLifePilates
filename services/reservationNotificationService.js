@@ -158,9 +158,18 @@ async function scheduleRemindersForReservation(reservation, { studioId, timeZone
   }
 }
 
+// Reservation lifecycle notifications (confirmed/updated/cancelled) honor the
+// studio's reservationAlertsEnabled toggle at the source, matching how the
+// other categories gate inbox delivery.
+async function reservationAlertsEnabled(studioId) {
+  const settings = await getStudioNotificationSettings(studioId);
+  return settings.reservationAlertsEnabled !== false;
+}
+
 // Single reservation confirmation to the member + the member's assigned
 // instructor. Instructor copy identifies the affected member and slot.
 async function notifySingleReservationCreated(reservation, { studioId }) {
+  if (!(await reservationAlertsEnabled(studioId))) return;
   const reservationId = fieldOf(reservation, 'id');
   const memberId = fieldOf(reservation, 'memberId');
   const salonId = fieldOf(reservation, 'salonId');
@@ -215,6 +224,7 @@ async function notifySingleReservationCreated(reservation, { studioId }) {
 // + the member's assigned instructor.
 async function notifySeriesReservationCreated(reservations, { studioId }) {
   if (!reservations || reservations.length === 0) return;
+  if (!(await reservationAlertsEnabled(studioId))) return;
   const sorted = sortChronologically(reservations);
   const first = sorted[0];
   const { memberNameById, salonNameById } = await loadMemberSalonMaps(studioId, [first]);
@@ -330,6 +340,7 @@ async function cancelObsoleteReminders(studioId, reservations, { excludeReservat
 // re-enqueue the SAME logical update should pass a stable `updateId`.
 async function notifyReservationUpdated(changes, { studioId, timeZone }) {
   if (!changes || changes.length === 0) return;
+  if (!(await reservationAlertsEnabled(studioId))) return;
   const { memberNameById, salonNameById } = await loadMemberSalonMaps(studioId, changes);
   // One update event per call: shared across all changes in this call so a
   // future-scope series update enqueues one job per reservation of the SAME
@@ -419,6 +430,7 @@ async function notifyReservationUpdated(changes, { studioId, timeZone }) {
 // cancellation must never imply the whole group class was cancelled.
 async function notifyReservationCancelled(reservations, { studioId, timeZone }) {
   if (!reservations || reservations.length === 0) return;
+  if (!(await reservationAlertsEnabled(studioId))) return;
   const sorted = sortChronologically(reservations);
   const isSeries = sorted.length > 1;
   const first = sorted[0];

@@ -108,6 +108,7 @@ async function ensureNotificationTables() {
     await addColumn('lowLessonsThreshold', 'lowLessonsThreshold INTEGER NOT NULL DEFAULT 2');
     await addColumn('packageExpiryDays', 'packageExpiryDays INTEGER NOT NULL DEFAULT 7');
     await addColumn('inactivityDays', 'inactivityDays INTEGER NOT NULL DEFAULT 14');
+    await addColumn('reservationAlertsEnabled', 'reservationAlertsEnabled INTEGER NOT NULL DEFAULT 1');
   }
 }
 

@@ -44,6 +44,14 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: true,
     },
+    // Reservation lifecycle notifications (confirmations, updates,
+    // cancellations) to members + instructors. Default true preserves existing
+    // always-on behavior.
+    reservationAlertsEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
     // Activation boundary: only package assignments on/after this date start
     // payment reminder cycles. NULL = not yet activated (no payment reminders).
     // Set once when payment notifications are enabled for the studio.

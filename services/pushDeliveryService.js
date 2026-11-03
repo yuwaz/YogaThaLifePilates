@@ -19,7 +19,13 @@ function categoryEnabled(settings, notificationType) {
   }
   if (notificationType === 'payment_overdue') return settings.paymentAlertsEnabled !== false;
   if (notificationType === 'member_inactive') return settings.inactivityAlertsEnabled !== false;
-  return true; // reservation confirmations/cancellations always on
+  if (notificationType === 'reservation_confirmed'
+    || notificationType === 'reservation_series_confirmed'
+    || notificationType === 'reservation_updated'
+    || notificationType === 'reservation_cancelled') {
+    return settings.reservationAlertsEnabled !== false;
+  }
+  return true;
 }
 
 // Enqueues one push delivery per eligible device for a persisted inbox

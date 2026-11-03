@@ -85,7 +85,32 @@ async function defaultJobHandler(job) {
 
     for (let i = 0; i < notifications.length; i++) {
       const n = notifications[i];
-      const deliveryKey = `job:${job.id}:${n.recipientType}:${n.recipientId}`;
+      // Content-level dedup: two jobs with different dedupKeys (e.g. a deferred
+      // quiet-hours job plus a re-enqueued retry) delivering the SAME content to
+      // the SAME recipient must not create two inbox rows. The delivery key is
+      // derived from the notification content (type + title + body + recipient
+      // + distinguishing payload metadata), not the job id, so retries of the
+      // SAME job still dedup (same content) while genuinely different
+      // notifications (different class/date in the body, a different type, or a
+      // different reservation/cycle in the payload) are unaffected.
+      let payloadKey = '';
+      if (n.payload && typeof n.payload === 'object') {
+        const p = n.payload;
+        const parts = [];
+        // Distinguishing metadata: memberId separates same-name members;
+        // reservationIds/date/time separate same-text reservation events on
+        // different dates; the rest separate cycles/assignments/reminders.
+        for (const key of ['memberId', 'reservationId', 'recurrenceGroupId', 'memberLessonPackageId', 'cycleAssignmentId', 'cycle', 'daysSince', 'expiresAt', 'date', 'time', 'oldDate', 'oldTime', 'newDate', 'newTime']) {
+          if (p[key] !== undefined && p[key] !== null) parts.push(`${key}=${p[key]}`);
+        }
+        // reservationIds is an array; include it to separate multi-reservation events.
+        if (Array.isArray(p.reservationIds) && p.reservationIds.length > 0) {
+          parts.push(`reservationIds=${p.reservationIds.join('-')}`);
+        }
+        if (parts.length > 0) payloadKey = `:${parts.join(',')}`;
+      }
+      const contentKey = `${n.type || job.type}:${n.title || ''}:${n.body || ''}${payloadKey}`;
+      const deliveryKey = `content:${job.studioId}:${n.recipientType}:${n.recipientId}:${contentKey}`;
 
       const existing = await Notification.findOne({
         where: { studioId: job.studioId, deliveryKey },
@@ -93,7 +118,7 @@ async function defaultJobHandler(job) {
       });
       if (existing) {
         if (!firstNotificationId) firstNotificationId = existing.id;
-        continue; // already delivered (retry after crash)
+        continue; // already delivered (retry after crash, or duplicate content)
       }
 
       const row = {
